@@ -1,0 +1,14 @@
+# What a project can make again, and nobody needs to keep.
+node_modules/
+.venv/
+venv/
+__pycache__/
+target/
+vendor/
+.gradle/
+DerivedData/
+.next/cache/
+.turbo/
+.cache/
+.DS_Store
+*.log
