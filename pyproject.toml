@@ -18,6 +18,9 @@ dependencies = [
     "uvicorn==0.54.0",
 ]
 
+[project.scripts]
+hivemind = "hivemind.__main__:main"
+
 [build-system]
 requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"

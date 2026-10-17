@@ -30,6 +30,11 @@ flowchart TD
     F -->|Não| A[Resposta final]
     D --> W[WebSocket: eventos por agente]
     A --> W
+    E[Explorador local] --> S
+    S --> G[(Grafo JSON com feromônios)]
+    G --> C[Curador]
+    C --> QF[Fila limitada de perguntas]
+    QF --> E
 ```
 
 - **Agentes:** interface assíncrona extensível, SDKs oficiais e modo demo offline.
@@ -38,6 +43,15 @@ flowchart TD
 - **Memória:** Chroma embutido, persistente, embeddings locais determinísticos por
   hashing de tokens. Não baixa modelos nem envia dados a serviços de embeddings.
   Essa busca lexical vetorial é simples e não equivale a embeddings semânticos.
+- **Grafo de conhecimento:** fragmentos locais são conectados por termos em comum.
+  Cada trilha recebe feromônio, pode ser reforçada quando uma descoberta é útil e
+  evapora ao fim de cada geração; conexões fracas e nós isolados podem ser podados.
+- **Papéis da colônia:** o explorador usa um provedor plugável (incluindo a
+  simulação local), o sintetizador conecta descobertas e o curador avalia seu
+  valor e decide se uma nova pergunta deve entrar na fila.
+- **Propagação controlada:** perguntas semelhantes são deduplicadas, a fila tem
+  capacidade limitada e cada tarefa respeita uma profundidade máxima. Não há
+  criação de processos ou agentes sem limite.
 - **Falhas:** um piloto pode falhar sem interromper os demais; falha de todos
   encerra a tarefa. Erros de persistência não são apresentados como aprendizado.
 - **Streaming:** eventos com respostas completas de cada piloto, não tokens.
@@ -58,6 +72,23 @@ uv run uvicorn hivemind.api.app:create_app --factory --host 127.0.0.1 --port 800
 
 O modo demo vem habilitado, dispensa chaves e não faz chamadas aos provedores.
 Abra `http://127.0.0.1:8000/docs` para a documentação OpenAPI interativa.
+
+### Simulação offline da colônia
+
+O comando abaixo executa cinco gerações locais sem chaves de API, rede ou
+chamadas aos provedores de modelos. Cada geração mostra nós criados, trilhas
+reforçadas e perguntas geradas/consumidas.
+
+```bash
+uv run python -m hivemind run --cycles 5
+# Ou, depois de instalar o projeto: hivemind run --cycles 10
+```
+
+O grafo é persistido em `HIVEMIND_GRAPH_PATH` (padrão
+`data/knowledge_graph.json`). A simulação aceita de 1 a 100 ciclos; a fila
+continua limitada a 100 perguntas e a profundidade de propagação é limitada ao
+número de ciclos solicitado. Os dados são locais e devem ser tratados como
+conteúdo não verificado. Para começar de novo, remova o arquivo do grafo.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/tasks \
@@ -136,7 +167,9 @@ sensíveis; não envie segredos ou dados pessoais desnecessários.
 
 `GET /metrics` informa contadores de ciclos, tarefas, falhas de agentes e
 quantidade atual de registros. São medidas operacionais, não provas de ganho
-de qualidade. Contadores reiniciam com o processo; a memória persiste.
+de qualidade. Contadores reiniciam com o processo; a memória persiste. A
+simulação CLI informa suas métricas por geração e mantém o grafo JSON entre
+execuções.
 
 A retenção de tarefas/eventos é limitada em RAM: registros terminados mais antigos
 são removidos ao atingir a capacidade. Tarefas/status não sobrevivem a reinícios.
@@ -202,10 +235,11 @@ e eventos. O CI executa lint, formatação, tipos e testes com cobertura.
 
 ```text
 src/hivemind/
-  agents/       # Interface e conectores oficiais/demo
-  core/         # Grafo LangGraph e síntese
-  memory/       # Persistência e busca vetorial local
-  feedback/     # Métricas de retroalimentação
+  agents/       # Papéis explorador, sintetizador e curador; conectores demo/SDK
+  core/         # Grafo LangGraph e ciclos da colônia
+  memory/       # Grafo JSON com feromônios e busca vetorial local
+  feedback/     # Fila limitada de perguntas e métricas de retroalimentação
+  __main__.py   # Interface CLI para simulação offline
   api/          # FastAPI REST/WebSocket
   config.py     # Configuração validada por ambiente
   logging.py    # Logs JSON operacionais

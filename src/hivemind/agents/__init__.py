@@ -1,4 +1,4 @@
-"""Model adapters with explicit boundaries around untrusted shared context."""
+"""Adaptadores de modelos com limites claros para contextos compartilhados."""
 
 import json
 from abc import ABC, abstractmethod
@@ -21,7 +21,7 @@ _SYSTEM = (
 
 
 def _prompt(task: str, context: list[str]) -> str:
-    """Serialize reference data separately from the user's task."""
+    """Serializa referências separadamente das instruções da pessoa usuária."""
     return (
         f"USER_TASK:\n{task}\n\nUNTRUSTED_CONTEXT (JSON reference data):\n"
         f"{json.dumps(bounded_context(context), ensure_ascii=True)}\n"
@@ -30,45 +30,45 @@ def _prompt(task: str, context: list[str]) -> str:
 
 
 def _text(value: str | None) -> str:
-    """Reject empty model outputs instead of inventing an answer."""
+    """Rejeita respostas vazias em vez de inventar um resultado."""
     if not value or not value.strip():
         raise RuntimeError("The model returned no text")
     return bounded_text(value.strip())
 
 
 class BaseAgent(ABC):
-    """A named asynchronous contributor; implementations own their SDK clients."""
+    """Contribuidor assíncrono nomeado; cada implementação gerencia seu SDK."""
 
     name: str
 
     @abstractmethod
     async def generate(self, task: str, context: list[str]) -> str:
-        """Return an answer using task instructions and untrusted references."""
+        """Produz uma resposta usando a tarefa e referências não confiáveis."""
 
     @abstractmethod
     async def close(self) -> None:
-        """Release resources owned by this agent."""
+        """Libera os recursos pertencentes a este agente."""
 
 
 class DemoAgent(BaseAgent):
-    """An explicitly simulated, deterministic contributor with no network use."""
+    """Contribuidor determinístico simulado, sem acesso à rede."""
 
     def __init__(self, name: str) -> None:
         self.name = name
 
     async def generate(self, task: str, context: list[str]) -> str:
-        """Return an attributed demonstration rather than simulate model claims."""
+        """Retorna uma demonstração identificada, sem fingir ser um modelo."""
         return bounded_text(
             f"Demo contribution from {self.name}: {task.strip()} "
             f"(reference entries: {len(context)})."
         )
 
     async def close(self) -> None:
-        """No resources need closing in demo mode."""
+        """O modo de demonstração não possui recursos para encerrar."""
 
 
 class ClaudeAgent(BaseAgent):
-    """Anthropic adapter using the official asynchronous client."""
+    """Adaptador Anthropic que utiliza o cliente assíncrono oficial."""
 
     name = "claude"
 
@@ -77,7 +77,7 @@ class ClaudeAgent(BaseAgent):
         self._model = model
 
     async def generate(self, task: str, context: list[str]) -> str:
-        """Collect textual content blocks without exposing nontext SDK objects."""
+        """Reúne blocos de texto sem expor objetos não textuais do SDK."""
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=2048,
@@ -89,12 +89,12 @@ class ClaudeAgent(BaseAgent):
         )
 
     async def close(self) -> None:
-        """Close the Anthropic HTTP client."""
+        """Fecha o cliente HTTP da Anthropic."""
         await self._client.close()
 
 
 class OpenAIAgent(BaseAgent):
-    """OpenAI adapter using the official asynchronous client."""
+    """Adaptador OpenAI que utiliza o cliente assíncrono oficial."""
 
     name = "openai"
 
@@ -103,7 +103,7 @@ class OpenAIAgent(BaseAgent):
         self._model = model
 
     async def generate(self, task: str, context: list[str]) -> str:
-        """Generate text with separate system instructions and reference data."""
+        """Gera texto com instruções de sistema e referências separadas."""
         response = await self._client.chat.completions.create(
             model=self._model,
             max_completion_tokens=2048,
@@ -117,12 +117,12 @@ class OpenAIAgent(BaseAgent):
         return _text(response.choices[0].message.content)
 
     async def close(self) -> None:
-        """Close the OpenAI HTTP client."""
+        """Fecha o cliente HTTP da OpenAI."""
         await self._client.close()
 
 
 class GeminiAgent(BaseAgent):
-    """Google GenAI adapter using its official asynchronous API."""
+    """Adaptador Google GenAI que utiliza a API assíncrona oficial."""
 
     name = "gemini"
 
@@ -136,7 +136,7 @@ class GeminiAgent(BaseAgent):
         self._model = model
 
     async def generate(self, task: str, context: list[str]) -> str:
-        """Generate text with a dedicated system instruction."""
+        """Gera texto com uma instrução de sistema dedicada."""
         response = await self._client.aio.models.generate_content(
             model=self._model,
             contents=_prompt(task, context),
@@ -147,12 +147,12 @@ class GeminiAgent(BaseAgent):
         return _text(response.text)
 
     async def close(self) -> None:
-        """Close the asynchronous Google client."""
+        """Fecha o cliente assíncrono do Google."""
         await self._client.aio.aclose()
 
 
 class AgentSettings(Protocol):
-    """Structural settings interface, independent of configuration loading."""
+    """Interface estrutural de configurações, independente do carregamento."""
 
     demo_mode: bool
     anthropic_api_key: SecretStr | None
@@ -164,7 +164,7 @@ class AgentSettings(Protocol):
 
 
 def build_agents(settings: AgentSettings) -> list[BaseAgent]:
-    """Build demo agents or only providers with nonempty configured credentials."""
+    """Cria agentes de demonstração ou provedores com credenciais configuradas."""
     if settings.demo_mode:
         return [DemoAgent(name) for name in ("claude", "openai", "gemini")]
     agents: list[BaseAgent] = []

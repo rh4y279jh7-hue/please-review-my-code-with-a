@@ -1,4 +1,4 @@
-"""Bounded, single-process task service with authenticated event streaming."""
+"""Serviço de tarefas limitado a um processo, com eventos autenticados."""
 
 import asyncio
 import hmac
@@ -27,7 +27,7 @@ TERMINAL = {"completed", "failed", "cancelled"}
 
 
 class TaskRequest(BaseModel):
-    """A bounded task, optionally overriding the default feedback cycle count."""
+    """Tarefa limitada, com opção de alterar os ciclos padrão."""
 
     task: str = Field(min_length=1, max_length=16000)
     cycles: int | None = Field(default=None, ge=1, le=10)
@@ -35,14 +35,14 @@ class TaskRequest(BaseModel):
     @field_validator("task")
     @classmethod
     def nonblank(cls, value: str) -> str:
-        """Reject whitespace-only tasks before scheduling any work."""
+        """Rejeita tarefas em branco antes de iniciar qualquer execução."""
         if not value.strip():
             raise ValueError("A tarefa não pode estar vazia")
         return value.strip()
 
 
 class TaskResponse(BaseModel):
-    """Current task state; provider exception details are never returned."""
+    """Estado atual da tarefa, sem detalhes de exceções dos provedores."""
 
     id: str
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -52,7 +52,7 @@ class TaskResponse(BaseModel):
 
 @dataclass
 class Job:
-    """A bounded event journal and live subscribers for one task."""
+    """Registro limitado de eventos e assinantes ativos de uma tarefa."""
 
     view: TaskResponse
     events: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=200))
@@ -60,7 +60,7 @@ class Job:
     worker: asyncio.Task[None] | None = None
 
     async def publish(self, event: dict[str, Any]) -> None:
-        """Publish without blocking model execution on slow consumers."""
+        """Publica eventos sem bloquear agentes por consumidores lentos."""
         self.events.append(event)
         for queue in self.subscribers:
             if queue.full():
@@ -71,7 +71,7 @@ class Job:
 def create_app(
     settings: Settings | None = None, orchestrator: Orchestrator | None = None
 ) -> FastAPI:
-    """Build an app; injectable dependencies permit offline integration tests."""
+    """Cria a aplicação; dependências injetáveis permitem testes offline."""
     config = settings if settings is not None else Settings()
     jobs: dict[str, Job] = {}
 
@@ -160,12 +160,12 @@ def create_app(
 
     @application.get("/health")
     async def health() -> dict[str, str]:
-        """Report process liveness without disclosing configuration."""
+        """Informa que o processo está ativo sem revelar configurações."""
         return {"status": "ok"}
 
     @application.post("/tasks", status_code=202, dependencies=[Depends(authenticate)])
     async def submit(payload: TaskRequest, request: Request) -> TaskResponse:
-        """Accept a task unless the bounded execution capacity is exhausted."""
+        """Aceita uma tarefa enquanto houver capacidade de execução disponível."""
         if payload.cycles is not None and payload.cycles > config.max_cycles:
             raise HTTPException(422, "Número de ciclos excede o limite configurado")
         active = sum(job.view.status not in TERMINAL for job in jobs.values())
@@ -189,12 +189,12 @@ def create_app(
 
     @application.get("/tasks/{task_id}", dependencies=[Depends(authenticate)])
     async def status(task_id: str) -> TaskResponse:
-        """Read task status until it is evicted or the process restarts."""
+        """Consulta o estado até a remoção da tarefa ou reinício do processo."""
         return find_job(task_id).view
 
     @application.get("/metrics", dependencies=[Depends(authenticate)])
     async def metrics(request: Request) -> dict[str, Any]:
-        """Expose growth counters, not a claim of measured model intelligence."""
+        """Expõe contadores de crescimento, não uma medida de inteligência."""
         engine = request.app.state.orchestrator
         return {
             **engine.feedback.snapshot(),
@@ -207,13 +207,13 @@ def create_app(
 
     @application.websocket("/ws/tasks/{task_id}")
     async def stream(websocket: WebSocket, task_id: str) -> None:
-        """Replay retained events and stream new agent responses, not token deltas."""
+        """Reproduz eventos retidos e novas respostas, não fluxos de tokens."""
         header = websocket.headers.get("authorization", "")
         scheme, _, value = header.partition(" ")
         if not authorized(value if scheme.lower() == "bearer" else None):
             await websocket.close(code=1008)
             return
-        # Browser cookies and query-string secrets are deliberately not accepted.
+        # Cookies e segredos na URL não são aceitos deliberadamente.
         if websocket.headers.get("origin"):
             await websocket.close(code=1008)
             return

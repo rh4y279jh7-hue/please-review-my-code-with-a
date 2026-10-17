@@ -1,1 +1,1 @@
-"""REST and WebSocket API for HiveMind."""
+"""API REST e WebSocket do HiveMind."""

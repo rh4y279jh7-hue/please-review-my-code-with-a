@@ -1,4 +1,4 @@
-"""Local-only persistent retrieval with deterministic, download-free embeddings."""
+"""Recuperação persistente local com embeddings determinísticos e sem downloads."""
 
 import asyncio
 import hashlib
@@ -15,20 +15,22 @@ import numpy as np
 from chromadb.api.types import Embeddable, EmbeddingFunction, Embeddings
 from chromadb.config import Settings
 
+from hivemind.memory.knowledge_graph import KnowledgeGraph
+
 
 class LocalEmbedding(EmbeddingFunction[Embeddable]):
-    """Hash tokens into 256 normalized bins; no model downloads or network calls.
+    """Distribui tokens em 256 posições normalizadas, sem downloads ou rede.
 
-    This small lexical embedding supports offline demos, not semantic reasoning.
-    Persistence and embedding configuration must be trusted operator-controlled
-    data; loading an untrusted Chroma directory is unsupported.
+    Este embedding lexical simples permite demonstrações offline, não raciocínio
+    semântico. Persistência e configuração devem ser controladas por quem opera;
+    não há suporte para abrir diretórios Chroma de origem não confiável.
     """
 
     def __init__(self) -> None:
-        """Use only the fixed built-in embedding algorithm."""
+        """Usa somente o algoritmo fixo incluído no projeto."""
 
     def __call__(self, input: Embeddable) -> Embeddings:
-        """Embed each input deterministically, independently of Python hash seeds."""
+        """Gera embeddings determinísticos, independentes da semente do Python."""
         vectors: Embeddings = []
         for text in input:
             if not isinstance(text, str):
@@ -47,27 +49,27 @@ class LocalEmbedding(EmbeddingFunction[Embeddable]):
 
     @staticmethod
     def name() -> str:
-        """Return the stable embedding identity stored with the collection."""
+        """Retorna a identidade estável do embedding salva na coleção."""
         return "hivemind-local-token-hash-v1"
 
     def get_config(self) -> dict[str, Any]:
-        """Expose no executable or user-supplied embedding configuration."""
+        """Não expõe configuração executável ou fornecida por usuários."""
         return {}
 
     @staticmethod
     def build_from_config(config: dict[str, Any]) -> "LocalEmbedding":
-        """Reconstruct only the fixed local algorithm, never external code."""
+        """Reconstrói somente o algoritmo local fixo, nunca código externo."""
         if config:
             raise ValueError("Custom embedding configuration is unsupported")
         return LocalEmbedding()
 
 
 class KnowledgeStore:
-    """Own a local Chroma collection at a trusted operator-controlled path.
+    """Gerencia uma coleção Chroma local em um caminho confiável.
 
-    Never expose ``path`` to request input or point it at an untrusted database.
-    This class uses no Chroma HTTP/server client, disables product telemetry,
-    and supplies only its fixed, local embedding function.
+    Não exponha ``path`` a entradas de requisição nem aponte para um banco não
+    confiável. Esta classe não usa servidor HTTP Chroma, desativa telemetria e
+    fornece somente sua função de embedding local e fixa.
     """
 
     def __init__(self, path: str) -> None:
@@ -85,7 +87,7 @@ class KnowledgeStore:
         )
 
     async def remember(self, task: str, answer: str) -> str:
-        """Persist a task and its attributed answer off the event-loop thread."""
+        """Persiste uma tarefa e sua resposta fora da thread do ciclo de eventos."""
         if not task.strip() or not answer.strip():
             raise ValueError("Task and answer must be nonempty")
         identifier = uuid4().hex
@@ -101,7 +103,7 @@ class KnowledgeStore:
         return await asyncio.to_thread(write)
 
     async def search(self, query: str, limit: int = 3) -> list[str]:
-        """Retrieve nearest stored documents without downloading embeddings."""
+        """Busca documentos próximos sem baixar modelos de embedding."""
         if type(limit) is not int or limit < 1:
             raise ValueError("Search limit must be a positive integer")
         if not query.strip():
@@ -123,7 +125,7 @@ class KnowledgeStore:
         return await asyncio.to_thread(read)
 
     async def count(self) -> int:
-        """Count persisted entries without blocking the event loop."""
+        """Conta registros persistidos sem bloquear o ciclo de eventos."""
 
         def read_count() -> int:
             with self._lock:
@@ -132,4 +134,4 @@ class KnowledgeStore:
         return await asyncio.to_thread(read_count)
 
 
-__all__ = ["KnowledgeStore"]
+__all__ = ["KnowledgeGraph", "KnowledgeStore"]
