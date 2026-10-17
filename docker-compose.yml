@@ -1,0 +1,35 @@
+services:
+  hivemind:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      HIVEMIND_DEMO_MODE: ${HIVEMIND_DEMO_MODE:-true}
+      HIVEMIND_API_TOKEN: ${HIVEMIND_API_TOKEN-}
+      HIVEMIND_ANTHROPIC_API_KEY: ${HIVEMIND_ANTHROPIC_API_KEY-}
+      HIVEMIND_OPENAI_API_KEY: ${HIVEMIND_OPENAI_API_KEY-}
+      HIVEMIND_GOOGLE_API_KEY: ${HIVEMIND_GOOGLE_API_KEY-}
+      HIVEMIND_CLAUDE_MODEL: ${HIVEMIND_CLAUDE_MODEL:-claude-sonnet-4-5}
+      HIVEMIND_OPENAI_MODEL: ${HIVEMIND_OPENAI_MODEL:-gpt-4.1-mini}
+      HIVEMIND_GEMINI_MODEL: ${HIVEMIND_GEMINI_MODEL:-gemini-2.5-flash}
+      HIVEMIND_MAX_CYCLES: ${HIVEMIND_MAX_CYCLES:-2}
+      HIVEMIND_AGENT_TIMEOUT_SECONDS: ${HIVEMIND_AGENT_TIMEOUT_SECONDS:-30}
+      HIVEMIND_MEMORY_PATH: /app/data/chroma
+      HIVEMIND_MEMORY_TOP_K: ${HIVEMIND_MEMORY_TOP_K:-3}
+      HIVEMIND_MAX_TASKS: ${HIVEMIND_MAX_TASKS:-100}
+      HIVEMIND_MAX_CONCURRENT_TASKS: ${HIVEMIND_MAX_CONCURRENT_TASKS:-4}
+      HIVEMIND_SHUTDOWN_TIMEOUT_SECONDS: ${HIVEMIND_SHUTDOWN_TIMEOUT_SECONDS:-10}
+    volumes:
+      - hivemind-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  hivemind-data:

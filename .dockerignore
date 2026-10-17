@@ -1,0 +1,16 @@
+.git
+.github
+.antigravity
+.venv
+.env
+.env.*
+data
+tests
+**/__pycache__
+.*_cache
+.coverage*
+coverage.xml
+htmlcov
+dist
+build
+*.egg-info
