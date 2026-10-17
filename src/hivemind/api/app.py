@@ -231,7 +231,7 @@ def create_app(
             await websocket.accept()
             for event in history:
                 await asyncio.wait_for(websocket.send_json(event), timeout=15)
-            if job.view.status in TERMINAL:
+            if any(event.get("type") == "task_finished" for event in history):
                 return
             while True:
                 try:

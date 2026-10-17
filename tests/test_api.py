@@ -7,7 +7,9 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from fastapi import WebSocket
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
 from hivemind.api.app import create_app
@@ -87,6 +89,50 @@ def test_demo_factory_with_real_local_memory(tmp_path: Path) -> None:
         assert metrics["completed_tasks"] == 1
     with TestClient(create_app(config)) as restarted:
         assert restarted.get("/metrics").json()["knowledge_entries"] == 2
+
+
+async def test_completion_during_websocket_accept_delivers_terminal_event() -> None:
+    """Events queued while accepting a connection must not be lost."""
+    release = asyncio.Event()
+    engine = fake_engine()
+    generate = engine.run
+
+    async def controlled_run(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        await release.wait()
+        return await generate(*args, **kwargs)
+
+    engine.run = controlled_run
+    app = create_app(settings(), engine)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            task_id = (await client.post("/tasks", json={"task": "a"})).json()["id"]
+            sent: list[dict[str, Any]] = []
+
+            async def accept_after_completion() -> None:
+                release.set()
+                for _ in range(100):
+                    view = (await client.get(f"/tasks/{task_id}")).json()
+                    if view["status"] == "completed":
+                        return
+                    await asyncio.sleep(0)
+                pytest.fail("Task did not complete during the handshake")
+
+            websocket = Mock(spec=WebSocket)
+            websocket.headers = {}
+            websocket.accept = AsyncMock(side_effect=accept_after_completion)
+            websocket.send_json = AsyncMock(side_effect=sent.append)
+            websocket.close = AsyncMock()
+            endpoint = next(
+                route.endpoint
+                for route in app.routes
+                if getattr(route, "path", None) == "/ws/tasks/{task_id}"
+            )
+            await endpoint(websocket, task_id)
+            assert sent[-1]["type"] == "task_finished"
+            assert sent[-1]["task"]["status"] == "completed"
+            assert any(event["type"] == "agent_response" for event in sent)
 
 
 @pytest.mark.parametrize("task", ["", "   ", "x" * 16001])
