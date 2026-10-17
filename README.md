@@ -31,9 +31,9 @@ flowchart TD
     D --> W[WebSocket: eventos por agente]
     A --> W
     E[Explorador local] --> S
-    S --> G[(Grafo JSON com feromônios)]
-    G --> C[Curador]
-    C --> QF[Fila limitada de perguntas]
+    S --> KG[(Grafo JSON com feromônios)]
+    KG --> CU[Curador]
+    CU --> QF[Fila limitada de perguntas]
     QF --> E
 ```
 

@@ -4,30 +4,39 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      HIVEMIND_DEMO_MODE: ${HIVEMIND_DEMO_MODE:-true}
-      HIVEMIND_API_TOKEN: ${HIVEMIND_API_TOKEN-}
-      HIVEMIND_ANTHROPIC_API_KEY: ${HIVEMIND_ANTHROPIC_API_KEY-}
-      HIVEMIND_OPENAI_API_KEY: ${HIVEMIND_OPENAI_API_KEY-}
-      HIVEMIND_GOOGLE_API_KEY: ${HIVEMIND_GOOGLE_API_KEY-}
-      HIVEMIND_CLAUDE_MODEL: ${HIVEMIND_CLAUDE_MODEL:-claude-sonnet-4-5}
-      HIVEMIND_OPENAI_MODEL: ${HIVEMIND_OPENAI_MODEL:-gpt-4.1-mini}
-      HIVEMIND_GEMINI_MODEL: ${HIVEMIND_GEMINI_MODEL:-gemini-2.5-flash}
-      HIVEMIND_MAX_CYCLES: ${HIVEMIND_MAX_CYCLES:-2}
-      HIVEMIND_AGENT_TIMEOUT_SECONDS: ${HIVEMIND_AGENT_TIMEOUT_SECONDS:-30}
+      # Caminhos fixos: precisam ficar dentro do volume /app/data.
       HIVEMIND_MEMORY_PATH: /app/data/chroma
-      HIVEMIND_MEMORY_TOP_K: ${HIVEMIND_MEMORY_TOP_K:-3}
-      HIVEMIND_MAX_TASKS: ${HIVEMIND_MAX_TASKS:-100}
-      HIVEMIND_MAX_CONCURRENT_TASKS: ${HIVEMIND_MAX_CONCURRENT_TASKS:-4}
-      HIVEMIND_SHUTDOWN_TIMEOUT_SECONDS: ${HIVEMIND_SHUTDOWN_TIMEOUT_SECONDS:-10}
+      HIVEMIND_GRAPH_PATH: /app/data/knowledge_graph.json
+      # Sem valor = repassa do .env (ou do shell) somente quando definido; caso
+      # contrário vale o padrão de src/hivemind/config.py, a única fonte de defaults.
+      HIVEMIND_DEMO_MODE:
+      HIVEMIND_API_TOKEN:
+      HIVEMIND_ANTHROPIC_API_KEY:
+      HIVEMIND_OPENAI_API_KEY:
+      HIVEMIND_GOOGLE_API_KEY:
+      HIVEMIND_CLAUDE_MODEL:
+      HIVEMIND_OPENAI_MODEL:
+      HIVEMIND_GEMINI_MODEL:
+      HIVEMIND_MAX_CYCLES:
+      HIVEMIND_AGENT_TIMEOUT_SECONDS:
+      HIVEMIND_MEMORY_TOP_K:
+      HIVEMIND_MAX_TASKS:
+      HIVEMIND_MAX_CONCURRENT_TASKS:
+      HIVEMIND_SHUTDOWN_TIMEOUT_SECONDS:
     volumes:
       - hivemind-data:/app/data
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:size=64m
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     stop_grace_period: 30s
 

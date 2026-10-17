@@ -60,7 +60,8 @@ Você pode criar um botão "Enviar tarefa ao HiveMind":
    - **Método**: `POST`
    - **Cabeçalhos**:
      - `Content-Type`: `application/json`
-     - `Authorization`: `******
+     - `Authorization`: `Bearer SEU_TOKEN` (troque `SEU_TOKEN` pelo valor de
+       `HIVEMIND_API_TOKEN` do arquivo `.env`, mantendo a palavra `Bearer` e o espaço)
    - **Corpo da solicitação**: `JSON`
      - `task` (Texto): use a variável da ação "Pedir Entrada"
      - `cycles` (Número): `2`
