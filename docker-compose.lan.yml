@@ -1,0 +1,16 @@
+# Override opcional para acesso pela REDE LOCAL (ex.: do seu iPhone no mesmo Wi-Fi).
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.lan.yml up --build
+#   (ou: ./scripts/start.sh --lan)
+#
+# AVISO DE SEGURANÇA
+# - Isto publica a porta 8000 em TODAS as interfaces de rede da máquina, não só no
+#   loopback. Qualquer dispositivo na mesma rede poderá alcançar o serviço.
+# - Use SOMENTE em rede confiável e SEMPRE com HIVEMIND_API_TOKEN configurado.
+# - Não exponha esta porta diretamente à internet. Para acesso externo, coloque um
+#   proxy reverso com HTTPS na frente ou utilize uma VPN (ex.: Tailscale).
+services:
+  hivemind:
+    ports:
+      - "0.0.0.0:8000:8000"
