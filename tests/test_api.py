@@ -24,19 +24,24 @@ def fake_engine(*, fail: bool = False, delay: float = 0) -> Any:
     engine.memory.count = AsyncMock(return_value=3)
     engine.feedback.snapshot.return_value = {"completed_tasks": 1, "cycles": 2}
     engine.close = AsyncMock()
+    serial = asyncio.Lock()
 
     async def run(task: str, *, cycles: int | None, on_event: Any) -> dict[str, Any]:
-        await asyncio.sleep(delay)
-        if fail:
-            raise RuntimeError("private provider failure")
-        await on_event({"type": "agent_response", "agent": "demo", "response": task})
-        return {
-            "answer": "síntese demo",
-            "responses": {"demo": task},
-            "failures": [],
-            "cycles": cycles or 2,
-            "memory_ids": ["entry"],
-        }
+        async with serial:
+            await on_event({"type": "started"})
+            await asyncio.sleep(delay)
+            if fail:
+                raise RuntimeError("private provider failure")
+            await on_event(
+                {"type": "agent_response", "agent": "demo", "response": task}
+            )
+            return {
+                "answer": "síntese demo",
+                "responses": {"demo": task},
+                "failures": [],
+                "cycles": cycles or 2,
+                "memory_ids": ["entry"],
+            }
 
     engine.run = run
     return engine
@@ -197,6 +202,8 @@ def test_provider_failure_is_sanitized() -> None:
         task_id = client.post("/tasks", json={"task": "a"}).json()["id"]
         with client.websocket_connect(f"/ws/tasks/{task_id}") as ws:
             final = ws.receive_json()
+            while final["type"] != "task_finished":
+                final = ws.receive_json()
         assert final["task"]["status"] == "failed"
         assert "private" not in json.dumps(final)
         assert client.get(f"/tasks/{task_id}").json()["result"] is None
@@ -211,6 +218,20 @@ def test_concurrency_limit_and_shutdown_cancellation() -> None:
         assert client.post("/tasks", json={"task": "b"}).status_code == 429
         assert client.get(f"/tasks/{task_id}").json()["status"] in {"queued", "running"}
     engine.close.assert_awaited_once()
+
+
+def test_waiting_task_stays_queued_until_engine_starts_it() -> None:
+    engine = fake_engine(delay=60)
+    config = settings(max_tasks=2, max_concurrent_tasks=2)
+    with TestClient(create_app(config, engine)) as client:
+        first = client.post("/tasks", json={"task": "a"}).json()["id"]
+        second = client.post("/tasks", json={"task": "b"}).json()["id"]
+        for _ in range(200):
+            if client.get(f"/tasks/{first}").json()["status"] == "running":
+                break
+            client.portal.call(asyncio.sleep, 0.01)
+        assert client.get(f"/tasks/{first}").json()["status"] == "running"
+        assert client.get(f"/tasks/{second}").json()["status"] == "queued"
 
 
 def test_completed_task_eviction() -> None:

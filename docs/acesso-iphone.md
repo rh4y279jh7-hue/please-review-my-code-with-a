@@ -40,6 +40,12 @@ No iPhone (mesmo Wi-Fi):
 
 > Dica: mantenha o computador ligado enquanto quiser usar pelo iPhone.
 
+> **Atenção: `http://` no Wi-Fi não é criptografado.** O token vai em texto puro
+> e qualquer pessoa na mesma rede pode capturá-lo. Use apenas na sua rede de casa.
+> Para redes compartilhadas (trabalho, café, hotel) ou acesso fora de casa, prefira
+> o [Tailscale](https://tailscale.com/) no computador e no iPhone: o tráfego entre
+> eles passa por um túnel criptografado e o serviço não fica exposto à internet.
+
 ## Caminho 2 — Nuvem (acessa de qualquer lugar; tem custo)
 
 1. Crie uma VM pequena num provedor de nuvem.
@@ -69,6 +75,14 @@ Você pode criar um botão "Enviar tarefa ao HiveMind":
 Para ver o resultado final, crie um segundo atalho que faça um `GET` em
 `http://IP-DO-COMPUTADOR:8000/tasks/ID_DA_TAREFA` com o mesmo cabeçalho
 `Authorization`.
+
+### Acompanhar em tempo real
+
+O WebSocket (`/ws/tasks/...`) **não funciona no Safari nem no Atalhos**: por
+segurança ele recusa conexões vindas de navegador (cabeçalho `Origin`), e o
+navegador não consegue enviar o token no handshake. No iPhone, consulte o estado
+com `GET /tasks/ID_DA_TAREFA` até o `status` virar `completed`, `failed` ou
+`cancelled`. Enquanto outra tarefa roda, a sua aparece como `queued`.
 
 ## Comandos úteis (no host)
 

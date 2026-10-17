@@ -102,7 +102,9 @@ curl http://127.0.0.1:8000/health
 ```
 
 `GET /tasks/{id}` retorna `queued`, `running`, `completed`, `failed` ou `cancelled`,
-com resultado final ou erro sanitizado. O resultado inclui `answer`, `responses`,
+com resultado final ou erro sanitizado. As execuções são serializadas: uma tarefa
+aceita fica `queued` até a anterior terminar e só então passa a `running`
+(evento `started`). O resultado inclui `answer`, `responses`,
 `failures`, `cycles` e `memory_ids`. Use o ID recebido, sem as chaves do exemplo.
 Tarefas vazias, longas demais ou com ciclos além do limite são rejeitadas (422);
 capacidade esgotada retorna 429. Os limites são configuráveis no `.env`.

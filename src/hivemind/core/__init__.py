@@ -247,6 +247,7 @@ class Orchestrator:
                     "memory_ids": [],
                     "on_event": on_event,
                 }
+                await self._emit(state, {"type": "started"})
                 result = await self._graph.ainvoke(
                     state, config={"recursion_limit": target * 4 + 2}
                 )

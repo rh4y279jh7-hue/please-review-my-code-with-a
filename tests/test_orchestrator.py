@@ -83,6 +83,7 @@ async def test_bounded_feedback_loop_and_memory_reuse() -> None:
     assert "Previous cycle" in agents[0].contexts[1][-1]
     assert result["answer"] in agents[0].contexts[1][-1]
     assert [event["type"] for event in events] == [
+        "started",
         "cycle_started",
         "agent_response",
         "agent_response",

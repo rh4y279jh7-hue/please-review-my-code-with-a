@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
     google_api_key: SecretStr | None = None
-    claude_model: str = "claude-sonnet-4-5"
+    claude_model: str = "claude-sonnet-5-5"
     openai_model: str = "gpt-4.1-mini"
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash"
     agent_timeout_seconds: float = Field(default=30, ge=0.1, le=300)
     max_cycles: int = Field(default=2, ge=1, le=10)
     memory_path: str = "data/chroma"

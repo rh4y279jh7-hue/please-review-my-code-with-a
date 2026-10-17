@@ -142,10 +142,15 @@ def create_app(
         return jobs[task_id]
 
     async def execute(job: Job, payload: TaskRequest, engine: Orchestrator) -> None:
-        job.view.status = "running"
+        async def observe(event: dict[str, Any]) -> None:
+            # Execuções são serializadas: "running" só quando a vez chega.
+            if event.get("type") == "started":
+                job.view.status = "running"
+            await job.publish(event)
+
         try:
             job.view.result = await engine.run(
-                payload.task, cycles=payload.cycles, on_event=job.publish
+                payload.task, cycles=payload.cycles, on_event=observe
             )
             job.view.status = "completed"
         except asyncio.CancelledError:
