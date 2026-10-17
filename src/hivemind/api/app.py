@@ -25,6 +25,30 @@ logger = logging.getLogger("hivemind.api")
 bearer = HTTPBearer(auto_error=False)
 TERMINAL = {"completed", "failed", "cancelled"}
 
+# Defesa em profundidade para proteger dados da conta no navegador e em trânsito.
+# Não é uma certificação governamental; são práticas padrão de endurecimento HTTP.
+# A CSP permite os recursos da documentação OpenAPI servida de cdn.jsdelivr.net.
+_SECURITY_HEADERS: dict[str, str] = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": (
+        "default-src 'none'; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
+        "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+        "img-src 'self' data: https://fastapi.tiangolo.com; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'"
+    ),
+}
+
 
 class TaskRequest(BaseModel):
     """Tarefa limitada, com opção de alterar os ciclos padrão."""
@@ -118,6 +142,14 @@ def create_app(
         description="Orquestração multiagente com memória coletiva local.",
         lifespan=lifespan,
     )
+
+    @application.middleware("http")
+    async def security_headers(request: Request, call_next: Any) -> Any:
+        """Aplica cabeçalhos de segurança a toda resposta HTTP, sem sobrescritas."""
+        response = await call_next(request)
+        for header, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
+        return response
 
     def authorized(value: str | None) -> bool:
         token = config.api_token
