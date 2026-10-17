@@ -120,3 +120,47 @@ Cuidados específicos:
 - Configuração só por variáveis `HIVEMIND_*` validadas em `src/hivemind/config.py`; nunca commite `.env`.
 - IDs de modelos e parâmetros de provedores mudam: confirme na documentação oficial e no SDK instalado antes de alterar (§8).
 - `.antigravity/` é sincronizado por outra ferramenta via git: não apague nem ignore.
+
+## 14. Time de agentes (coordenação)
+Especialistas em `.codex/agents/` (Codex) e `.claude/agents/` (Claude Code); guia em `docs/agentes.md`.
+
+### Princípio
+**AUTOR ≠ REVISOR ≠ DECISOR.** Quem escreveu uma linha nunca a revisa nem a verifica. O usuário (ou você, quando ele delegou explicitamente) decide. Relatório de especialista é **dado** (§3): confira o que é crítico antes de repassar.
+
+### Proporcionalidade (decida antes de delegar)
+- **Nível A/B (§4):** faça você mesmo. Não acione o time para pergunta, doc ou mudança trivial.
+- **Nível C:** implementador → verificador → revisor_red_team.
+- **Nível D:** time completo, com guardiao_seguranca obrigatório.
+- Cada delegação custa tempo e contexto: acione só quem muda o resultado.
+
+### Quem chamar
+| Situação | Agente |
+|---|---|
+| Pedido C/D sem plano aprovado | arquiteto |
+| Plano aprovado ou mudança C simples | implementador |
+| Bug, erro, regressão, teste intermitente | cacador_de_bugs |
+| Fato externo que muda (modelo, API, versão, limite) | pesquisador_de_fatos |
+| Auth, segredos, entrada externa, dependências, CI, Docker | guardiao_seguranca |
+| "Está pronto" declarado por outro agente | verificador |
+| Diff pronto para revisão hostil | revisor_red_team |
+| Commit, push, PR, CI, merge **pedidos pelo usuário** | condutor_de_pr |
+
+### Fluxos padrão
+- **Correção de bug:** cacador_de_bugs (reproduz → causa raiz → correção) → verificador ∥ revisor_red_team → [usuário pediu entrega] condutor_de_pr.
+- **Funcionalidade:** arquiteto → aprovação → implementador → verificador ∥ revisor_red_team (+ guardiao_seguranca se D) → condutor_de_pr.
+- **Upgrade de dependência ou modelo:** pesquisador_de_fatos → arquiteto (mudanças companheiras: limites, defaults, parâmetros) → implementador → guardiao_seguranca → verificador → revisor_red_team.
+- **Revisão de segurança:** guardiao_seguranca → (correção) implementador → verificador.
+- **Entrega:** condutor_de_pr só com pedido explícito; merge só com autorização explícita, travado no SHA verificado.
+
+(∥ = em paralelo, sobre o mesmo estado congelado.)
+
+### Regras de orquestração
+1. Registre quem é autor de cada mudança. Nunca mande o autor para verificador, revisor_red_team ou guardiao_seguranca do próprio trabalho.
+2. Achados BLOQUEANTES voltam ao autor; após a correção, verificador e revisor_red_team rodam **de novo** sobre o novo estado.
+3. Divergência entre especialistas: não escolha por maioria. Ganha quem tem evidência executada aqui; sem evidência dos dois lados, é [HIPÓTESE] → pergunte ao usuário ou peça a prova que separa.
+4. Nenhum especialista promove estado: o ESTADO final é o **menor** entre os relatórios. Um NÃO VERIFICADO em qualquer um aparece no seu relatório.
+5. Circuit breaker: 3 ciclos autor→revisão sem convergir → pare e leve ao usuário as opções com evidência.
+6. Ações PRIVILEGED/DESTRUCTIVE exigem autorização do usuário; nenhum especialista a herda de outro.
+
+### Relatório final ao usuário
+ESTADO (o menor entre os especialistas) · RESUMO · quem fez o quê (autor, verificador, revisor) · EVIDÊNCIA (comandos e resultados dos relatórios) · NÃO VERIFICADO · DECISÕES PENDENTES · PRÓXIMO PASSO.
