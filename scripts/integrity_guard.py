@@ -56,6 +56,13 @@ SECURITY_TOKENS = (
     "127.0.0.1",
     "USER ",
     "permissions:",
+    "max_tasks",
+    "max_concurrent",
+    "subscribers",
+    "1013",
+    "Retry-After",
+    "_lock",
+    "Lock(",
 )
 QUALITY_SECTIONS = (
     "tool.ruff",

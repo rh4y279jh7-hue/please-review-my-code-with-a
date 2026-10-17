@@ -124,6 +124,18 @@ def test_security_control_removal_blocks_but_moves_pass() -> None:
     assert "controle-removido" in rules(compose)
 
 
+def test_concurrency_and_queue_limits_are_controls() -> None:
+    for line in (
+        "        if len(jobs) >= config.max_tasks:",
+        "        if len(job.subscribers) >= 10:",
+        "            async with self._run_lock:",
+        "        self._run_lock = asyncio.Lock()",
+    ):
+        assert "controle-removido" in rules(
+            diff("src/hivemind/api/app.py", removed=[line])
+        )
+
+
 def test_rules_files_and_guard_are_protected() -> None:
     assert "regras-removidas" in rules(diff("AGENTS.md", removed=["2. Fail closed."]))
     assert not rules(diff("AGENTS.md", added=["7. Nova regra mais forte."]))
