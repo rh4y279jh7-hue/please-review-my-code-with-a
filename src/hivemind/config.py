@@ -1,0 +1,62 @@
+"""Validated environment configuration; secrets never appear in representations."""
+
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime settings loaded from HIVEMIND_* variables or a local .env."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="HIVEMIND_",
+        env_file=".env",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
+
+    demo_mode: bool = True
+    api_token: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
+    google_api_key: SecretStr | None = None
+    claude_model: str = "claude-sonnet-4-5"
+    openai_model: str = "gpt-4.1-mini"
+    gemini_model: str = "gemini-2.5-flash"
+    agent_timeout_seconds: float = Field(default=30, ge=0.1, le=300)
+    max_cycles: int = Field(default=2, ge=1, le=10)
+    memory_path: str = "data/chroma"
+    memory_top_k: int = Field(default=3, ge=1, le=20)
+    max_tasks: int = Field(default=100, ge=1, le=10000)
+    max_concurrent_tasks: int = Field(default=4, ge=1, le=100)
+    shutdown_timeout_seconds: float = Field(default=10, ge=0.1, le=60)
+
+    @field_validator(
+        "api_token",
+        "anthropic_api_key",
+        "openai_api_key",
+        "google_api_key",
+        mode="before",
+    )
+    @classmethod
+    def empty_secret(cls, value: object) -> object:
+        """Treat empty optional Compose variables as absent credentials."""
+        return None if value == "" else value
+
+    @model_validator(mode="after")
+    def validate_security(self) -> "Settings":
+        """Require API authentication before enabling paid external providers."""
+        for secret in (
+            self.api_token,
+            self.anthropic_api_key,
+            self.openai_api_key,
+            self.google_api_key,
+        ):
+            if secret is not None and not secret.get_secret_value().strip():
+                raise ValueError("Credenciais configuradas não podem estar vazias")
+        if self.api_token is not None and len(self.api_token.get_secret_value()) < 32:
+            raise ValueError("HIVEMIND_API_TOKEN deve ter pelo menos 32 caracteres")
+        if not self.demo_mode and self.api_token is None:
+            raise ValueError("Modo real exige HIVEMIND_API_TOKEN")
+        if self.max_concurrent_tasks > self.max_tasks:
+            raise ValueError("max_concurrent_tasks não pode exceder max_tasks")
+        return self
