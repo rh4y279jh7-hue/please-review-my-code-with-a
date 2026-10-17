@@ -1,11 +1,11 @@
-"""Validated environment configuration; secrets never appear in representations."""
+"""Configuração de ambiente validada; segredos não aparecem em representações."""
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime settings loaded from HIVEMIND_* variables or a local .env."""
+    """Carrega configurações das variáveis HIVEMIND_* ou de um arquivo .env local."""
 
     model_config = SettingsConfigDict(
         env_prefix="HIVEMIND_",
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     agent_timeout_seconds: float = Field(default=30, ge=0.1, le=300)
     max_cycles: int = Field(default=2, ge=1, le=10)
     memory_path: str = "data/chroma"
+    graph_path: str = "data/knowledge_graph.json"
     memory_top_k: int = Field(default=3, ge=1, le=20)
     max_tasks: int = Field(default=100, ge=1, le=10000)
     max_concurrent_tasks: int = Field(default=4, ge=1, le=100)
@@ -39,12 +40,12 @@ class Settings(BaseSettings):
     )
     @classmethod
     def empty_secret(cls, value: object) -> object:
-        """Treat empty optional Compose variables as absent credentials."""
+        """Trata variáveis opcionais vazias do Compose como credenciais ausentes."""
         return None if value == "" else value
 
     @model_validator(mode="after")
     def validate_security(self) -> "Settings":
-        """Require API authentication before enabling paid external providers."""
+        """Exige autenticação na API antes de habilitar provedores pagos."""
         for secret in (
             self.api_token,
             self.anthropic_api_key,

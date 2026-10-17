@@ -1,4 +1,4 @@
-"""Bounded LangGraph orchestration with isolated asynchronous contributors."""
+"""Orquestração limitada com LangGraph e contribuições assíncronas isoladas."""
 
 import asyncio
 import math
@@ -34,12 +34,11 @@ class _State(TypedDict):
 
 
 class Orchestrator:
-    """Run retrieve/dispatch/aggregate/learn cycles, never claiming consensus.
+    """Executa ciclos de busca, distribuição, síntese e aprendizado limitado.
 
-    Runs are serialized to make lifecycle and memory feedback deterministic,
-    and every run is bounded to at most ten cycles.
-    Event delivery is best-effort; callbacks should enqueue without blocking.
-    Agent outputs and retrieved memory remain untrusted reference material.
+    As execuções são serializadas para manter o ciclo de vida e a retroalimentação
+    determinísticos, com no máximo dez ciclos. Eventos são enviados como melhor
+    esforço; respostas de agentes e memórias recuperadas continuam não confiáveis.
     """
 
     def __init__(
@@ -97,7 +96,7 @@ class Orchestrator:
 
     @property
     def memory(self) -> KnowledgeStore:
-        """Expose the store's async contract for lifecycle and health checks."""
+        """Expõe o contrato assíncrono da memória para verificações do serviço."""
         return self._memory
 
     async def _emit(self, state: _State, event: dict[str, Any]) -> None:
@@ -110,7 +109,7 @@ class Orchestrator:
                 if current is not None and current.cancelling():
                     raise
             except Exception:
-                # A disconnected observer cannot invalidate useful engine work.
+                # Um observador desconectado não pode invalidar o trabalho útil.
                 pass
 
     async def _retrieve(self, state: _State) -> dict[str, Any]:
@@ -223,10 +222,10 @@ class Orchestrator:
         cycles: int | None = None,
         on_event: EventCallback | None = None,
     ) -> dict[str, Any]:
-        """Return final responses, cumulative failures, and persisted IDs.
+        """Retorna respostas finais, falhas acumuladas e identificadores salvos.
 
-        Valid run attempts are counted exactly once, including cancellations
-        while waiting for another run. Invalid input is rejected before counting.
+        Tentativas válidas são contadas uma única vez, inclusive cancelamentos
+        enquanto aguardam outra execução. Entradas inválidas não são contabilizadas.
         """
         if not isinstance(task, str) or not task.strip():
             raise ValueError("Task must be a nonempty string")
@@ -266,7 +265,7 @@ class Orchestrator:
             raise
 
     async def close(self) -> None:
-        """Wait for an active run and close every agent, even after one fails."""
+        """Aguarda uma execução e fecha todos os agentes, mesmo após uma falha."""
         async with self._run_lock:
             if self._closed:
                 return

@@ -1,4 +1,4 @@
-"""Structured operational logging without prompts, model output or credentials."""
+"""Registro operacional estruturado, sem prompts, respostas ou credenciais."""
 
 import json
 import logging
@@ -6,10 +6,10 @@ from datetime import UTC, datetime
 
 
 class JsonFormatter(logging.Formatter):
-    """Format only explicitly supplied operational log messages."""
+    """Formata somente mensagens operacionais fornecidas explicitamente."""
 
     def format(self, record: logging.LogRecord) -> str:
-        """Serialize a minimal log event, omitting exception payloads."""
+        """Serializa um evento mínimo e omite detalhes de exceções."""
         return json.dumps(
             {
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -22,7 +22,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
-    """Configure application logs without altering external SDK loggers."""
+    """Configura os registros da aplicação sem alterar os SDKs externos."""
     logger = logging.getLogger("hivemind")
     logger.setLevel(logging.INFO)
     logger.propagate = False

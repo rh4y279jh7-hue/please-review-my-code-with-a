@@ -1,4 +1,4 @@
-"""Fixed character budgets for untrusted provider outputs and reference data."""
+"""Limites fixos de caracteres para respostas e referências não confiáveis."""
 
 MAX_OUTPUT_CHARS = 16_000
 MAX_CONTEXT_ENTRIES = 24
@@ -8,7 +8,7 @@ _TRUNCATION = "\n[truncated for safety]"
 
 
 def bounded_text(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
-    """Keep at most ``limit`` characters, marking any discarded content."""
+    """Mantém no máximo ``limit`` caracteres e sinaliza conteúdo cortado."""
     if len(text) <= limit:
         return text
     return text[: max(0, limit - len(_TRUNCATION))] + _TRUNCATION[:limit]
@@ -20,7 +20,7 @@ def bounded_context(
     max_entries: int = MAX_CONTEXT_ENTRIES,
     max_chars: int = MAX_CONTEXT_CHARS,
 ) -> list[str]:
-    """Copy reference excerpts within per-entry, count, and total-size budgets."""
+    """Copia referências dentro dos limites por trecho, quantidade e tamanho."""
     result: list[str] = []
     remaining = max_chars
     for entry in context[:max_entries]:
