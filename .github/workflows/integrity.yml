@@ -1,0 +1,32 @@
+name: Integrity
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+jobs:
+  integridade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6.0.0
+        with:
+          python-version: "3.12"
+      - name: Guardião (versão da base, nunca a do PR)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          guard="$RUNNER_TEMP/integrity_guard.py"
+          if git cat-file -e "$BASE_SHA:scripts/integrity_guard.py" 2>/dev/null; then
+            git show "$BASE_SHA:scripts/integrity_guard.py" > "$guard"
+          else
+            # Primeira instalação: a base ainda não tem guardião.
+            cp scripts/integrity_guard.py "$guard"
+          fi
+          python -I "$guard" --base "$BASE_SHA" --head "$HEAD_SHA" --labels "$LABELS"
