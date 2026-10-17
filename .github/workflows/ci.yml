@@ -23,5 +23,17 @@ jobs:
         run: uv run black --check .
       - name: Type check
         run: uv run mypy src/hivemind
+      - name: Compose LAN override
+        run: |
+          lan="docker compose -f docker-compose.yml -f docker-compose.lan.yml"
+          if HIVEMIND_API_TOKEN= $lan config -q 2>/dev/null; then
+            echo "LAN override must require HIVEMIND_API_TOKEN" >&2
+            exit 1
+          fi
+          ports="$(HIVEMIND_API_TOKEN=ci-placeholder-token-with-32-characters \
+            $lan config --format json | jq -c '.services.hivemind.ports')"
+          echo "$ports"
+          test "$(jq 'length' <<<"$ports")" = 1
+          test "$(jq -r '.[0].host_ip' <<<"$ports")" = 0.0.0.0
       - name: Offline tests with coverage
         run: uv run pytest --cov=hivemind --cov-report=term-missing --cov-report=xml

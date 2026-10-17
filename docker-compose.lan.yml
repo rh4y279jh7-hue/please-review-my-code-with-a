@@ -7,10 +7,15 @@
 # AVISO DE SEGURANÇA
 # - Isto publica a porta 8000 em TODAS as interfaces de rede da máquina, não só no
 #   loopback. Qualquer dispositivo na mesma rede poderá alcançar o serviço.
-# - Use SOMENTE em rede confiável e SEMPRE com HIVEMIND_API_TOKEN configurado.
+# - Use SOMENTE em rede confiável. HIVEMIND_API_TOKEN é obrigatório: sem ele o
+#   Compose recusa subir o serviço.
 # - Não exponha esta porta diretamente à internet. Para acesso externo, coloque um
 #   proxy reverso com HTTPS na frente ou utilize uma VPN (ex.: Tailscale).
 services:
   hivemind:
-    ports:
+    # !override substitui a lista do arquivo base. Sem ele, o Compose mantém as
+    # duas publicações (127.0.0.1 e 0.0.0.0 na mesma porta) e o bind conflita.
+    ports: !override
       - "0.0.0.0:8000:8000"
+    environment:
+      HIVEMIND_API_TOKEN: ${HIVEMIND_API_TOKEN:?Acesso pela rede exige HIVEMIND_API_TOKEN no .env (use ./scripts/start.sh --lan)}
