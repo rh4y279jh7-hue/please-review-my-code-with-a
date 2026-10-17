@@ -106,7 +106,7 @@ class OpenAIAgent(BaseAgent):
         """Generate text with separate system instructions and reference data."""
         response = await self._client.chat.completions.create(
             model=self._model,
-            max_completion_tokens=4096,
+            max_completion_tokens=2048,
             messages=[
                 {"role": "system", "content": _SYSTEM},
                 {"role": "user", "content": _prompt(task, context)},
@@ -141,7 +141,7 @@ class GeminiAgent(BaseAgent):
             model=self._model,
             contents=_prompt(task, context),
             config=genai.types.GenerateContentConfig(
-                system_instruction=_SYSTEM, max_output_tokens=4096
+                system_instruction=_SYSTEM, max_output_tokens=2048
             ),
         )
         return _text(response.text)

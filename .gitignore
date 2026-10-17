@@ -19,6 +19,7 @@ DerivedData/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest-work/
 .mypy_cache/
 .ruff_cache/
 .coverage*

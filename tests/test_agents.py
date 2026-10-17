@@ -51,6 +51,7 @@ async def test_claude_sdk() -> None:
         factory.assert_called_once_with(api_key="fake", max_retries=0)
         kwargs = client.messages.create.call_args.kwargs
         assert kwargs["model"] == "claude-test"
+        assert kwargs["max_tokens"] == 2048
         assert "untrusted" in kwargs["system"]
         assert "UNTRUSTED_CONTEXT" in kwargs["messages"][0]["content"]
         await agent.close()
@@ -72,6 +73,7 @@ async def test_openai_sdk() -> None:
         factory.assert_called_once_with(api_key="fake", max_retries=0)
         kwargs = client.chat.completions.create.call_args.kwargs
         assert kwargs["model"] == "openai-test"
+        assert kwargs["max_completion_tokens"] == 2048
         assert kwargs["messages"][0]["role"] == "system"
         assert "UNTRUSTED_CONTEXT" in kwargs["messages"][1]["content"]
         await agent.close()
@@ -93,6 +95,7 @@ async def test_gemini_sdk() -> None:
         assert factory.call_args.kwargs["http_options"].retry_options.attempts == 1
         kwargs = client.aio.models.generate_content.call_args.kwargs
         assert kwargs["model"] == "gemini-test"
+        assert kwargs["config"].max_output_tokens == 2048
         assert "UNTRUSTED_CONTEXT" in kwargs["contents"]
         assert "untrusted" in kwargs["config"].system_instruction
         await agent.close()
