@@ -210,7 +210,10 @@ def test_docs_remain_available_with_security_headers() -> None:
     with TestClient(create_app(settings(), fake_engine())) as client:
         response = client.get("/docs")
         assert response.status_code == 200
-        assert "cdn.jsdelivr.net" in response.headers["Content-Security-Policy"]
+        assert (
+            "script-src 'self' https://cdn.jsdelivr.net"
+            in response.headers["Content-Security-Policy"]
+        )
 
 
 def test_provider_failure_is_sanitized() -> None:
