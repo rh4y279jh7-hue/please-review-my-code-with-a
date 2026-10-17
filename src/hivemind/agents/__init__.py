@@ -6,7 +6,8 @@ from typing import Protocol
 
 from anthropic import AsyncAnthropic
 from google import genai
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, omit
+from openai.types.shared import ReasoningEffort
 from pydantic import SecretStr
 
 from hivemind.agents.limits import bounded_context, bounded_text
@@ -98,12 +99,16 @@ class OpenAIAgent(BaseAgent):
 
     name = "openai"
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self, api_key: str, model: str, reasoning_effort: ReasoningEffort = None
+    ) -> None:
         self._client = AsyncOpenAI(api_key=api_key, max_retries=0)
         self._model = model
+        self._reasoning_effort = reasoning_effort
 
     async def generate(self, task: str, context: list[str]) -> str:
         """Gera texto com instruções de sistema e referências separadas."""
+        # Modelos sem raciocínio rejeitam o parâmetro; só é enviado se configurado.
         response = await self._client.chat.completions.create(
             model=self._model,
             max_completion_tokens=2048,
@@ -111,6 +116,9 @@ class OpenAIAgent(BaseAgent):
                 {"role": "system", "content": _SYSTEM},
                 {"role": "user", "content": _prompt(task, context)},
             ],
+            reasoning_effort=(
+                self._reasoning_effort if self._reasoning_effort is not None else omit
+            ),
         )
         if not response.choices:
             raise RuntimeError("The model returned no choices")
@@ -160,7 +168,15 @@ class AgentSettings(Protocol):
     google_api_key: SecretStr | None
     claude_model: str
     openai_model: str
+    openai_reasoning_effort: ReasoningEffort
     gemini_model: str
+
+
+def _configured(key: SecretStr | None) -> str | None:
+    """Retorna a chave apenas quando ela tem conteúdo além de espaços."""
+    if key is None or not key.get_secret_value().strip():
+        return None
+    return key.get_secret_value()
 
 
 def build_agents(settings: AgentSettings) -> list[BaseAgent]:
@@ -168,13 +184,18 @@ def build_agents(settings: AgentSettings) -> list[BaseAgent]:
     if settings.demo_mode:
         return [DemoAgent(name) for name in ("claude", "openai", "gemini")]
     agents: list[BaseAgent] = []
-    for agent_class, key, model in (
-        (ClaudeAgent, settings.anthropic_api_key, settings.claude_model),
-        (OpenAIAgent, settings.openai_api_key, settings.openai_model),
-        (GeminiAgent, settings.google_api_key, settings.gemini_model),
-    ):
-        if key is not None and key.get_secret_value().strip():
-            agents.append(agent_class(api_key=key.get_secret_value(), model=model))
+    if (key := _configured(settings.anthropic_api_key)) is not None:
+        agents.append(ClaudeAgent(api_key=key, model=settings.claude_model))
+    if (key := _configured(settings.openai_api_key)) is not None:
+        agents.append(
+            OpenAIAgent(
+                api_key=key,
+                model=settings.openai_model,
+                reasoning_effort=settings.openai_reasoning_effort,
+            )
+        )
+    if (key := _configured(settings.google_api_key)) is not None:
+        agents.append(GeminiAgent(api_key=key, model=settings.gemini_model))
     if not agents:
         raise ValueError("Configure at least one model API key or enable demo mode")
     return agents
