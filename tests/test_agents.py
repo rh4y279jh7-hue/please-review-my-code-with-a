@@ -1,9 +1,12 @@
 """Provider contracts tested without credentials or network traffic."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+from openai import AsyncOpenAI
 from pydantic import SecretStr
 
 from hivemind.agents import (
@@ -81,6 +84,57 @@ async def test_openai_sdk() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("effort", [None, "none", "low"])
+async def test_openai_reasoning_effort_on_the_wire(effort: str | None) -> None:
+    """Unset effort is omitted from the request body; non-reasoning models reject it."""
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "x",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "m",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "ok"},
+                    }
+                ],
+            },
+        )
+
+    client = AsyncOpenAI(
+        api_key="fake",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with patch("hivemind.agents.AsyncOpenAI", return_value=client):
+        agent = OpenAIAgent(api_key="fake", model="m", reasoning_effort=effort)
+        assert await agent.generate("task", []) == "ok"
+        await agent.close()
+    if effort is None:
+        assert "reasoning_effort" not in bodies[0]
+    else:
+        assert bodies[0]["reasoning_effort"] == effort
+
+
+def test_openai_reasoning_effort_setting() -> None:
+    assert Settings(_env_file=None).openai_model == "gpt-6-luna"
+    assert Settings(_env_file=None).openai_reasoning_effort == "none"
+    assert (
+        Settings(_env_file=None, openai_reasoning_effort="").openai_reasoning_effort
+        is None
+    )
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, openai_reasoning_effort="extreme")
+
+
+@pytest.mark.asyncio
 async def test_gemini_sdk() -> None:
     client = MagicMock()
     client.aio.models.generate_content = AsyncMock(
@@ -125,6 +179,7 @@ def test_build_agents() -> None:
         google_api_key=None,
         claude_model="c",
         openai_model="o",
+        openai_reasoning_effort="low",
         gemini_model="g",
     )
     with (
@@ -144,7 +199,10 @@ def test_build_agents() -> None:
         with pytest.raises(ValueError, match="at least one"):
             build_agents(settings)
         settings.openai_api_key = SecretStr("fake")
-        assert [agent.name for agent in build_agents(settings)] == ["openai"]
+        built = build_agents(settings)
+        assert [agent.name for agent in built] == ["openai"]
+        assert isinstance(built[0], OpenAIAgent)
+        assert built[0]._reasoning_effort == "low"
         settings.anthropic_api_key = SecretStr("fake")
         settings.google_api_key = SecretStr("fake")
         assert len(build_agents(settings)) == 3

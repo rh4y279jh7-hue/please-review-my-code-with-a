@@ -1,5 +1,6 @@
 """Configuração de ambiente validada; segredos não aparecem em representações."""
 
+from openai.types.shared import ReasoningEffort
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,7 +21,10 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     google_api_key: SecretStr | None = None
     claude_model: str = "claude-sonnet-5-5"
-    openai_model: str = "gpt-4.1-mini"
+    openai_model: str = "gpt-6-luna"
+    # "none" mantém o comportamento sem raciocínio do antigo gpt-4.1-mini e evita
+    # que tokens de raciocínio consumam o limite de saída. Vazio = não enviar.
+    openai_reasoning_effort: ReasoningEffort = "none"
     gemini_model: str = "gemini-3.5-flash"
     agent_timeout_seconds: float = Field(default=30, ge=0.1, le=300)
     max_cycles: int = Field(default=2, ge=1, le=10)
@@ -36,11 +40,12 @@ class Settings(BaseSettings):
         "anthropic_api_key",
         "openai_api_key",
         "google_api_key",
+        "openai_reasoning_effort",
         mode="before",
     )
     @classmethod
     def empty_secret(cls, value: object) -> object:
-        """Trata variáveis opcionais vazias do Compose como credenciais ausentes."""
+        """Trata variáveis opcionais vazias do Compose como valores ausentes."""
         return None if value == "" else value
 
     @model_validator(mode="after")
