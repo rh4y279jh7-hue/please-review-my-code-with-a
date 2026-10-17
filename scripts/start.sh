@@ -51,7 +51,7 @@ if [ "$LAN" = true ]; then
     grep -vE '^#?\s*HIVEMIND_API_TOKEN=' .env >.env.tmp && mv .env.tmp .env
     printf 'HIVEMIND_API_TOKEN=%s\n' "$TOKEN" >>.env
     echo "Gerado HIVEMIND_API_TOKEN e salvo no .env (necessário para acesso em rede)."
-    echo "Guarde este token; ele é exigido no header Authorization: ******"
+    echo "Guarde este token; envie-o no header 'Authorization: Bearer <token>'."
   fi
   echo "Atenção: o acesso pela rede local publica a porta 8000 em todas as interfaces."
   echo "Use apenas em rede confiável. Para internet, use HTTPS e, de preferência, uma VPN."
