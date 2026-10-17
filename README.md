@@ -59,6 +59,13 @@ flowchart TD
   por contribuição; contexto compartilhado de até 24 trechos,
   8.000 caracteres por trecho e 32.000 no total. Cortes recebem uma indicação
   explícita; os limites evitam crescimento recursivo sem controle.
+- **Segurança da conta e dados:** autenticação por token de 32+ caracteres com
+  comparação em tempo constante, segredos nunca expostos em logs ou erros, erros
+  de provedores sanitizados e cabeçalhos HTTP de defesa em profundidade em toda
+  resposta (`Cache-Control: no-store`, `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, isolamento `Cross-Origin-*`, `Strict-Transport-Security` e uma
+  `Content-Security-Policy` restritiva compatível com a documentação `/docs`). São
+  práticas padrão de endurecimento; não constituem certificação governamental.
 
 ## Instalação e execução
 

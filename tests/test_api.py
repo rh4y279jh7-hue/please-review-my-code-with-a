@@ -192,6 +192,27 @@ def test_authentication_on_rest_and_websocket() -> None:
                 pass
 
 
+def test_security_headers_present_on_responses() -> None:
+    with TestClient(create_app(settings(), fake_engine())) as client:
+        headers = client.get("/health").headers
+        assert headers["X-Content-Type-Options"] == "nosniff"
+        assert headers["X-Frame-Options"] == "DENY"
+        assert headers["Referrer-Policy"] == "no-referrer"
+        assert headers["Cross-Origin-Opener-Policy"] == "same-origin"
+        assert headers["Cross-Origin-Resource-Policy"] == "same-origin"
+        assert headers["Cache-Control"] == "no-store"
+        assert "max-age=" in headers["Strict-Transport-Security"]
+        assert "default-src 'none'" in headers["Content-Security-Policy"]
+        assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+
+
+def test_docs_remain_available_with_security_headers() -> None:
+    with TestClient(create_app(settings(), fake_engine())) as client:
+        response = client.get("/docs")
+        assert response.status_code == 200
+        assert "cdn.jsdelivr.net" in response.headers["Content-Security-Policy"]
+
+
 def test_provider_failure_is_sanitized() -> None:
     with TestClient(create_app(settings(), fake_engine(fail=True))) as client:
         task_id = client.post("/tasks", json={"task": "a"}).json()["id"]
