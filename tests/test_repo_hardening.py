@@ -24,11 +24,18 @@ SECRET_RE = re.compile(
             "github" + "_pat_[A-Za-z0-9_]{22,}",
             "xox" + "[baprs]-[A-Za-z0-9-]{10,}",
             "-----BEGIN [A-Z ]*PRIVATE " + "KEY-----",
-            "HIVEMIND_"
-            + r"[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)"
-            + r"[\x22\x27]?[\])]?\s*[:=,]\s*[\x22\x27]?[A-Za-z0-9_\-+/=.]{16,}",
         )
     )
+)
+
+# Checked on the line without the CI placeholder; SECRET_RE always sees the
+# whole line. After a comma only a quoted value counts, and never another
+# HIVEMIND_ name, so tuples of names and setenv(name, variable) stay quiet.
+PROJECT_SECRET_RE = re.compile(
+    "HIVEMIND_"
+    + r"[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)[\x22\x27]?[\])]?\s*"
+    + r"(?:[:=]\s*[\x22\x27]?|,\s*[\x22\x27](?!HIVEMIND_))"
+    + r"[A-Za-z0-9_\-+/=.]{16,}"
 )
 
 ALLOWED_PLACEHOLDERS = ("ci-placeholder-token-with-32-characters",)
@@ -62,10 +69,11 @@ def _secret_locations(paths: list[Path]) -> list[str]:
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="ignore")
         for number, line in enumerate(text.splitlines(), start=1):
-            # Only the placeholder itself is exempt, never the rest of its line.
+            # Only the HIVEMIND_* check skips the placeholder itself.
+            project = line
             for allowed in ALLOWED_PLACEHOLDERS:
-                line = line.replace(allowed, "")
-            if SECRET_RE.search(line):
+                project = project.replace(allowed, "")
+            if SECRET_RE.search(line) or PROJECT_SECRET_RE.search(project):
                 found.append(f"{path}:{number}")
     return found
 
@@ -501,6 +509,8 @@ def test_ci_placeholder_alone_is_not_flagged(tmp_path: Path) -> None:
     for placeholder in ALLOWED_PLACEHOLDERS:
         assert not _flagged(tmp_path, f"{key}={placeholder}")
         assert not _flagged(tmp_path, f'ports="$({key}={placeholder} \\')
+        assert not _flagged(tmp_path, f'"{key}": "{placeholder}"')
+        assert not _flagged(tmp_path, f'monkeypatch.setenv("{key}", "{placeholder}")')
 
 
 @pytest.mark.parametrize("kind", sorted(FAKE_SECRETS))
@@ -535,6 +545,54 @@ def test_scanner_skips_short_or_missing_project_values(tmp_path: Path) -> None:
     assert not _flagged(tmp_path, f'monkeypatch.setenv("{key}", "test-token")')
     assert not _flagged(tmp_path, f'os.environ.get("{key}")')
     assert not _flagged(tmp_path, f"{key}=")
+
+
+# Each prefix followed by the CI placeholder matches the vendor pattern it is
+# named after. Except akia and private-key, which cannot use the placeholder's
+# lowercase text, the match needs the placeholder's own characters.
+PREFIXES_OF_PLACEHOLDER = {
+    "sk-0": "s" + "k-",
+    "sk-19": "s" + "k-" + "f" * 19,
+    "akia": "AKIA" + "FAKEVALUEFORTEST",
+    "aiza-34": "AIza" + "f" * 34,
+    "gh-35": "gh" + "p_" + "f" * 35,
+    "github-pat-21": "github" + "_pat_" + "f" * 21,
+    "xox-9": "xox" + "b-" + "f" * 9,
+    "private-key": "-----BEGIN " + "PRIVATE " + "KEY-----",
+}
+
+
+@pytest.mark.parametrize("case", sorted(PREFIXES_OF_PLACEHOLDER))
+def test_vendor_patterns_see_the_placeholder_text(tmp_path: Path, case: str) -> None:
+    line = PREFIXES_OF_PLACEHOLDER[case] + ALLOWED_PLACEHOLDERS[0]
+    assert _flagged(tmp_path, line)
+
+
+def test_placeholder_end_can_start_a_vendor_pattern(tmp_path: Path) -> None:
+    # The CI placeholder ends in "s", so "k-..." right after it reads "sk-...".
+    assert _flagged(tmp_path, ALLOWED_PLACEHOLDERS[0] + "k-" + FAKE_VALUE)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        'for name in ("{key}", "{other}"):',
+        "Defina {key}, {other} e {third}.",
+        'monkeypatch.setenv("{key}", valid_token_fixture)',
+        'monkeypatch.setenv("{key}", secrets.token_urlsafe(32))',
+        'monkeypatch.setenv("{key}", "x" * 32)',
+    ],
+    ids=["names", "prose", "setenv-name", "setenv-generated", "setenv-repeat"],
+)
+def test_scanner_ignores_names_and_variables_after_a_comma(
+    tmp_path: Path, template: str
+) -> None:
+    line = template.format(
+        key="HIVEMIND_" + "API_TOKEN",
+        other="HIVEMIND_" + "OPENAI_API_KEY",
+        third="HIVEMIND_" + "GOOGLE_API_KEY",
+    )
+    assert not _flagged(tmp_path, line)
 
 
 def test_integrity_job_has_a_real_timeout() -> None:
