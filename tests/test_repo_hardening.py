@@ -9,6 +9,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # Built by concatenation so this file itself never matches.
@@ -24,12 +26,15 @@ SECRET_RE = re.compile(
             "-----BEGIN [A-Z ]*PRIVATE " + "KEY-----",
             "HIVEMIND_"
             + r"[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)"
-            + r"\s*[:=]\s*[\x22\x27]?[A-Za-z0-9_\-+/=.]{16,}",
+            + r"[\x22\x27]?[\])]?\s*[:=,]\s*[\x22\x27]?[A-Za-z0-9_\-+/=.]{16,}",
         )
     )
 )
 
 ALLOWED_PLACEHOLDERS = ("ci-placeholder-token-with-32-characters",)
+
+# Obviously fake, for scanner fixtures.
+FAKE_VALUE = "fake-value-for-scanner-test"
 
 
 def _ignored(name: str) -> bool:
@@ -57,9 +62,10 @@ def _secret_locations(paths: list[Path]) -> list[str]:
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="ignore")
         for number, line in enumerate(text.splitlines(), start=1):
-            if SECRET_RE.search(line) and not any(
-                allowed in line for allowed in ALLOWED_PLACEHOLDERS
-            ):
+            # Only the placeholder itself is exempt, never the rest of its line.
+            for allowed in ALLOWED_PLACEHOLDERS:
+                line = line.replace(allowed, "")
+            if SECRET_RE.search(line):
                 found.append(f"{path}:{number}")
     return found
 
@@ -241,6 +247,12 @@ EXPECTED_DENY = {
     "Bash(* | sh*)",
     "Bash(* | zsh*)",
     "Bash(*sudo *)",
+    "Bash(/bin/bash)",
+    "Bash(/bin/bash*)",
+    "Bash(/bin/sh)",
+    "Bash(/bin/sh*)",
+    "Bash(/bin/zsh)",
+    "Bash(/bin/zsh*)",
     "Bash(bash -c*)",
     "Bash(bash -s *)",
     "Bash(bash)",
@@ -268,6 +280,8 @@ EXPECTED_DENY = {
     "Bash(su)",
     "Bash(sudo *)",
     "Bash(zsh -c*)",
+    "Bash(zsh -s *)",
+    "Bash(zsh)",
     "Edit(.env)",
     "Edit(uv.lock)",
     "Read(*.env)",
@@ -288,19 +302,34 @@ EXPECTED_DENY = {
     "Read(.env.tmp)",
     "Read(.envrc)",
     "Read(//**/*.env)",
+    "Read(//**/*.key)",
+    "Read(//**/*.p12)",
+    "Read(//**/*.pem)",
+    "Read(//**/*.pfx)",
     "Read(//**/*Cookie*)",
     "Read(//**/*cookie*)",
     "Read(//**/*keychain*)",
     "Read(//**/.env*)",
+    "Read(//**/credentials*.json)",
+    "Read(//**/id_ecdsa*)",
+    "Read(//**/id_ed25519*)",
+    "Read(//**/id_rsa*)",
+    "Read(//**/service-account*.json)",
+    "Read(//proc/**)",
     "Read(credentials*.json)",
+    "Read(id_ecdsa*)",
     "Read(id_ed25519*)",
     "Read(id_rsa*)",
     "Read(service-account*.json)",
     "Read(~/.aws/**)",
+    "Read(~/.azure/**)",
     "Read(~/.claude/.credentials.json)",
+    "Read(~/.config/gcloud/**)",
     "Read(~/.config/gh/**)",
     "Read(~/.docker/config.json)",
     "Read(~/.git-credentials)",
+    "Read(~/.gnupg/**)",
+    "Read(~/.kube/**)",
     "Read(~/.local/share/keyrings/**)",
     "Read(~/.netrc)",
     "Read(~/.npmrc)",
@@ -367,6 +396,7 @@ EXPECTED_ASK = {
     "Bash(uv lock *)",
     "Bash(uv pip install *)",
     "Bash(uv remove *)",
+    "Bash(zsh *)",
     "Edit(.antigravity/**)",
     "Edit(.claude/**)",
     "Edit(.codex/**)",
@@ -438,10 +468,77 @@ def test_pin_checker_sees_spaced_uses() -> None:
 def test_scanner_flags_unprefixed_project_token(tmp_path: Path) -> None:
     key = "HIVEMIND_" + "API_TOKEN"
     leak = tmp_path / "leak.txt"
-    leak.write_text(f"ok\n{key}=Zq3vL9pR2sT7wX4yB8nC\n", encoding="utf-8")
+    leak.write_text(f"ok\n{key}={FAKE_VALUE}\n", encoding="utf-8")
     assert _secret_locations([leak]) == [f"{leak}:2"]
     placeholder = tmp_path / "placeholder.txt"
     placeholder.write_text(
         f"{key}=ci-placeholder-token-with-32-characters\n", encoding="utf-8"
     )
     assert _secret_locations([placeholder]) == []
+
+
+def _flagged(tmp_path: Path, line: str) -> bool:
+    probe = tmp_path / "probe.txt"
+    probe.write_text(f"{line}\n", encoding="utf-8")
+    return _secret_locations([probe]) == [f"{probe}:1"]
+
+
+# One obviously fake sample per pattern, built at runtime like SECRET_RE.
+FAKE_SECRETS = {
+    "sk": "sk-" + FAKE_VALUE,
+    "akia": "AKIA" + "FAKEVALUEFORTEST",
+    "aiza": "AIza" + "fake-" * 7,
+    "gh": "gh" + "p_" + "fake" * 9,
+    "github-pat": "github" + "_pat_" + "fake_" * 5,
+    "xox": "xox" + "b-" + FAKE_VALUE,
+    "private-key": "-----BEGIN " + "PRIVATE " + "KEY-----",
+    "hivemind": "HIVEMIND_" + "OPENAI_API_KEY=" + FAKE_VALUE,
+}
+
+
+def test_ci_placeholder_alone_is_not_flagged(tmp_path: Path) -> None:
+    key = "HIVEMIND_" + "API_TOKEN"
+    for placeholder in ALLOWED_PLACEHOLDERS:
+        assert not _flagged(tmp_path, f"{key}={placeholder}")
+        assert not _flagged(tmp_path, f'ports="$({key}={placeholder} \\')
+
+
+@pytest.mark.parametrize("kind", sorted(FAKE_SECRETS))
+def test_placeholder_does_not_hide_a_secret_on_its_line(
+    tmp_path: Path, kind: str
+) -> None:
+    fake = FAKE_SECRETS[kind]
+    assert _flagged(tmp_path, fake)
+    for placeholder in ALLOWED_PLACEHOLDERS:
+        assert _flagged(tmp_path, f"{fake}  # {placeholder}")
+        assert _flagged(tmp_path, f"{placeholder} {fake}")
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        '{key}="{value}"',
+        '"{key}": "{value}"',
+        "{{'{key}': '{value}'}}",
+        'monkeypatch.setenv("{key}", "{value}")',
+        'os.environ["{key}"] = "{value}"',
+    ],
+    ids=["quoted-value", "json", "dict", "setenv", "environ"],
+)
+def test_scanner_flags_quoted_project_keys(tmp_path: Path, template: str) -> None:
+    line = template.format(key="HIVEMIND_" + "API_TOKEN", value=FAKE_VALUE)
+    assert _flagged(tmp_path, line)
+
+
+def test_scanner_skips_short_or_missing_project_values(tmp_path: Path) -> None:
+    key = "HIVEMIND_" + "API_TOKEN"
+    assert not _flagged(tmp_path, f'monkeypatch.setenv("{key}", "test-token")')
+    assert not _flagged(tmp_path, f'os.environ.get("{key}")')
+    assert not _flagged(tmp_path, f"{key}=")
+
+
+def test_integrity_job_has_a_real_timeout() -> None:
+    text = (ROOT / ".github" / "workflows" / "integrity.yml").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"(?m)^\s*timeout-minutes:\s*\d+\s*$", text)
