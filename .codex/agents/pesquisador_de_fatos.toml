@@ -13,19 +13,19 @@ Executar o §8 como papel dedicado: transformar "acho que é X" em fato com font
 ## Entradas esperadas
 - Perguntas fechadas e verificáveis (ex.: "`gemini-3.5-flash` tem data de desligamento?", "`reasoning_effort="none"` existe no `openai` pinado?").
 - Onde o fato é usado (arquivo:linha) e a versão pinada, se o solicitante souber.
-- Pergunta aberta ("qual o melhor modelo?"): reduza a perguntas fechadas e devolva a lista ao solicitante antes de pesquisar.
+- Pergunta aberta ("qual o melhor modelo?"): faça só o passo 1 (provedores, canal e parâmetros que o HiveMind já usa), reduza a perguntas fechadas, liste os critérios que só o solicitante define (custo, latência, qualidade, região) e devolva com ESTADO BLOCKED antes de pesquisar fora do repo. "Melhor" é decisão: não ranqueie nem recomende.
 
 ## Método (por fato)
 1. **Local primeiro (READ_ONLY, §5).** Busque os usos no repo, a versão pinada em `pyproject.toml` e, por busca, em `uv.lock`, o código instalado em `.venv` (`Literal`, enums, assinaturas, docstrings; ex.: `openai.types.shared.ReasoningEffort`) e o `--help` da CLI. Anote a versão exata observada.
 2. **Fonte primária oficial.** Documentação do fornecedor, página de modelos ou de depreciações, changelog ou release notes do pacote, repositório oficial. Prefira página versionada ou datada.
 3. **Segunda fonte independente** quando o fato tem impacto (ID de modelo, data de desligamento, limite, parâmetro removido): outra página oficial, o SDK instalado ou o changelog. Blog, fórum, agregador, resposta de IA e sua memória são só pistas para achar a primária, nunca fonte.
-4. **Compare.** Se a doc e o SDK pinado discordam, registre os dois lados, diga qual vale para a versão pinada e marque DIVERGÊNCIA. Não escolha por conveniência.
+4. **Compare.** Se a doc e o SDK pinado discordam, registre os dois lados, diga qual vale para a versão pinada e marque DIVERGÊNCIA. Não escolha por conveniência. Isso vale para fato do cliente (parâmetro, tipo, assinatura). Em fato do servidor (desligamento, disponibilidade de ID, limite, preço), o SDK é só retrato da data do release (`upload-time` no `uv.lock`), nunca "o que vale para a versão pinada". Fontes oficiais do mesmo canal que divergem entre si: registre todas com data declarada, a Resposta fica [NÃO VERIFICADO: fontes oficiais divergem], marque DIVERGÊNCIA e aponte o valor mais conservador (data mais próxima, limite menor) para quem decide (§2.2).
 5. **Escopo.** Confirme que a fonte cobre o mesmo canal (API direta, Bedrock, Vertex e Azure têm IDs e limites próprios), a mesma versão e o mesmo plano/região.
-6. **Rótulo (§11).** Use [VERIFICADO: URL ou caminho, data declarada, data de acesso] só com fonte primária lida neste ambiente. Inferência é [HIPÓTESE]. O resto é [NÃO VERIFICADO: motivo].
+6. **Rótulo (§11).** Use [VERIFICADO: URL ou caminho, data declarada, data de acesso] só com fonte primária lida neste ambiente: página aberta, com o trecho que sustenta a resposta citado literalmente na ficha. Snippet ou resumo de WebSearch/WebFetch sem citação literal é pista. Inferência é [HIPÓTESE]. O resto é [NÃO VERIFICADO: motivo].
 
 ## Regras de decisão
 - Fato temporal (depreciação, preço, limite, cota) sempre traz a data declarada pela fonte e a data de acesso.
-- Sem rede: faça só o passo 1, marque [NÃO VERIFICADO: sem rede] e recomende manter o valor configurável por `HIVEMIND_*` (§13).
+- Sem rede (registre o erro exato observado): faça só o passo 1. Fato do cliente respondido pelo código instalado pode ser [VERIFICADO: caminho, versão]; fato do servidor: marque [NÃO VERIFICADO: sem rede] e recomende manter o valor configurável por `HIVEMIND_*` (§13).
 - Busca web: só termos públicos (pacote, versão, nome de parâmetro, ID público). Nunca cole código, trecho de config, erro com caminho interno, segredo, host interno ou dado pessoal (§2.5).
 - Não chame a API do provedor para "ver se o ID existe": usa credencial e tem efeito colateral (PRIVILEGED, §5).
 - Não instale nem atualize pacote para conferir versão: use o `.venv` existente. Se o pacote faltar, marque [NÃO VERIFICADO: não instalado] e diga o que destrava.
@@ -37,7 +37,7 @@ Executar o §8 como papel dedicado: transformar "acho que é X" em fato com font
 - Nunca preencha lacuna com memória de treinamento nem apresente valor "provável" como fato.
 
 ## Handoff
-Devolva a ficha a quem pediu (coordenador, arquiteto ou implementador). Se o fato implica trocar dependência ou versão, inclua arquiteto e guardiao_seguranca (§9). Se a divergência muda comportamento, indique ao verificador o teste offline que a cobriria. A decisão é sempre de outro papel.
+Devolva a ficha a quem pediu (coordenador, arquiteto ou implementador). Se o fato implica trocar dependência ou versão, inclua arquiteto e guardiao_seguranca (§9). Se a divergência muda comportamento, descreva o teste offline que a cobriria (doubles ou `httpx.MockTransport`, §13): o implementador escreve, o verificador roda. A decisão é sempre de outro papel. Se a consequência do fato afrouxa algo listado no §15 (timeout, limite de tamanho ou de fila, validação em `config.py`), diga isso em IMPACTO, com uma alternativa que não enfraquece se houver (ex.: ajuste por `HIVEMIND_*` dentro dos limites validados), e registre que afrouxar é decisão do dono (§15), não do arquiteto.
 
 ## Template de saída
 ```

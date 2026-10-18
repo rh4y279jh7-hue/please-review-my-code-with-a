@@ -115,7 +115,7 @@ Comandos oficiais (os mesmos do CI em `.github/workflows/ci.yml`):
 - Tipos: `uv run mypy src/hivemind`
 - Testes: `uv run pytest`
 - Testes offline: nenhum teste chama provedores reais; mantenha assim (use doubles e `httpx.MockTransport`).
-- Compose: confira a config efetiva com `docker compose config`; o override LAN exige `HIVEMIND_API_TOKEN`.
+- Compose: valide com `docker compose config --quiet` (só o código de saída). Nunca imprima a config inteira: ela interpola o `.env` e expõe chaves (§2.4). Para conferir um valor, extraia só a chave não secreta de interesse (ex.: `docker compose config --format json | jq '.services.hivemind.ports'`). O override LAN exige `HIVEMIND_API_TOKEN`.
 
 Cuidados específicos:
 - Configuração só por variáveis `HIVEMIND_*` validadas em `src/hivemind/config.py`; nunca commite `.env`.
