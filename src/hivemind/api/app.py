@@ -11,10 +11,8 @@ from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
-from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
-from starlette.responses import HTMLResponse
 from starlette.websockets import WebSocketDisconnect
 
 from hivemind.agents import build_agents
@@ -41,10 +39,10 @@ _SECURITY_HEADERS: dict[str, str] = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": (
         "default-src 'none'; "
-        "script-src 'self' https://cdn.jsdelivr.net https://va.vercel-scripts.com; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
         "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
         "img-src 'self' data: https://fastapi.tiangolo.com; "
-        "connect-src 'self' https://va.vercel-scripts.com; "
+        "connect-src 'self'; "
         "frame-ancestors 'none'; "
         "base-uri 'none'; "
         "form-action 'self'"
@@ -143,7 +141,6 @@ def create_app(
         version="0.1.0",
         description="Orquestração multiagente com memória coletiva local.",
         lifespan=lifespan,
-        docs_url=None,  # Disable default docs to use custom implementation
     )
 
     @application.middleware("http")
@@ -197,23 +194,6 @@ def create_app(
             logger.warning("task_failed")
         finally:
             await job.publish({"type": "task_finished", "task": job.view.model_dump()})
-
-    @application.get("/docs", include_in_schema=False)
-    async def custom_swagger_ui_html() -> HTMLResponse:
-        """Custom Swagger UI with Vercel Web Analytics integration."""
-        html = get_swagger_ui_html(
-            openapi_url=application.openapi_url or "/openapi.json",
-            title=f"{application.title} - Swagger UI",
-            swagger_favicon_url="https://fastapi.tiangolo.com/img/favicon.png",
-        )
-        # Inject Vercel Analytics script before closing head tag
-        analytics_script = (
-            '<script defer src="https://va.vercel-scripts.com/v1/script.js"></script>'
-        )
-        body_bytes = bytes(html.body)
-        html_content = body_bytes.decode("utf-8")
-        html_content = html_content.replace("</head>", f"{analytics_script}</head>")
-        return HTMLResponse(content=html_content)
 
     @application.get("/health")
     async def health() -> dict[str, str]:
