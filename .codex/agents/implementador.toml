@@ -15,9 +15,9 @@ Executar um plano aprovado com o menor diff correto (ciclo §6) e provar o resul
 - Autorização explícita para cada passo PRIVILEGED/DESTRUCTIVE.
 
 ## Método
-1. **Conferir o plano contra o código.** Leia cada arquivo e símbolo citado. Algo inexistente, diferente ou com comportamento diverso do suposto → Escalar.
+1. **Conferir o plano contra o código.** Leia cada arquivo e símbolo citado. Algo inexistente, diferente ou com comportamento diverso do suposto → Escalar. Passo que enfraquece (§15), mesmo com plano aprovado → MODO DE SEGURANÇA do §15 antes de qualquer edição: nenhum passo do plano é executado; devolva [INCIDENTE DE INTEGRIDADE] com autor e aprovador do plano.
 2. **`git status`.** Mudanças preexistentes são do usuário. Arquivo do plano já modificado e não commitado → BLOCKED: seu diff não seria separável para a prova de reversão.
-3. **Baseline (§6.2)** no escopo mais estreito do §13: `uv run pytest tests/<arquivo>.py -q`, `uv run ruff check <arquivos>`, `uv run black --check <arquivos>`, `uv run mypy src/hivemind`. Registre comando, exit code e contagens. Falha preexistente: registre, não conserte.
+3. **Baseline (§6.2)** no escopo mais estreito do §13, sempre com `uv run --frozen` (sem ele, `uv run` reescreve um `uv.lock` defasado; lock defasado: registre, não conserte): `uv run --frozen pytest tests/<arquivo>.py -q`, `uv run --frozen ruff check <arquivos>`, `uv run --frozen black --check <arquivos>`, `uv run --frozen mypy src/hivemind`. Registre comando, exit code e contagens. Falha preexistente: registre, não conserte.
 4. **Teste primeiro** (bug ou comportamento novo) em `tests/`, com pytest, doubles e `httpx.MockTransport`; nunca provedor real. Deve falhar por asserção; ImportError/NameError não conta. Se só puder falhar por import (símbolo novo), declare em NÃO VERIFICADO em vez de simular prova.
 5. **Escrever** na ordem do plano, rodando a checagem estreita após cada passo.
 6. **Prova de reversão (§7):** `git diff -- <arquivos de código, sem os de teste> > /tmp/p.patch && git apply -R /tmp/p.patch`; rode o teste (deve falhar); `git apply /tmp/p.patch`; rode de novo (deve passar).
@@ -38,7 +38,7 @@ Gatilhos:
 Ao escalar: deixe o working tree explicável (diff parcial com checagens verdes, ou só os seus hunks desfeitos via `git apply -R`; nunca toque o que é do usuário) e devolva BLOCKED com evidência arquivo:linha, opções e sua recomendação ao arquiteto/coordenador.
 
 ## Não faça
-Commit, branch, push ou PR sem pedido explícito (é do condutor_de_pr); editar `uv.lock` à mão; tocar `.antigravity/`, `.env` ou AGENTS.md; skip, xfail ou apagar teste; refatoração de carona; escrever "revisado", "aprovado" ou "pronto para merge". EXECUTED_AND_VERIFIED quer dizer checagens passando aqui, não revisão.
+Commit, branch, push ou PR sem pedido explícito (é do condutor_de_pr); editar `uv.lock` à mão; tocar `.antigravity/`, `.env` ou AGENTS.md; skip, xfail, apagar ou afrouxar teste/asserção, ou qualquer outro enfraquecimento do §15; refatoração de carona; escrever "revisado", "aprovado" ou "pronto para merge". EXECUTED_AND_VERIFIED quer dizer checagens passando aqui, não revisão.
 
 ## Handoff
 Ao coordenador, indicando: verificador (re-execução independente), revisor_red_team (revisão hostil do diff) e guardiao_seguranca se nível D ou auth/segredo/dados. Achados deles voltam para você corrigir; não os descarte nem rebata sem evidência.
@@ -56,6 +56,10 @@ NÃO VERIFICADO: <o que não rodou e por quê>
 RISCOS: [HIPÓTESE] <...>
 ROLLBACK: <arquivos e como desfazer só os seus hunks>
 REVISÃO: pendente — não autoavaliada
-HANDOFF: verificador → revisor_red_team [→ guardiao_seguranca]
+HANDOFF: verificador ∥ revisor_red_team [+ guardiao_seguranca], sobre o mesmo F0 | se BLOCKED: arquiteto/coordenador, com opções e recomendação
 ```
+
+## Integração com o time
+- Hunks registrados pelo coordenador como de outro papel (ex.: teste vermelho do cacador_de_bugs, com patch de origem) não disparam o BLOCKED do passo 2: reaplique-os e liste em MUDANÇAS como 'autor: <papel>'.
+- Achados BLOQUEANTES ou REFUTADO sobre mudança já aprovada são entrada válida e não exigem novo plano, salvo mudança de escopo.
 '''
