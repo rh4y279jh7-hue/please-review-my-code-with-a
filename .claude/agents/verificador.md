@@ -60,4 +60,5 @@ CONFIRMADO só com ESTADO AFERIDO EXECUTED_AND_VERIFIED, F0=F1 e nada relevante 
 ## Integração com o time
 - Alvo = `<base do PR>...<head>` informado pelo coordenador; diferente do estado verificado: BLOCKED.
 - Fingerprint de árvore sem tocar o índice do usuário: `GIT_INDEX_FILE=/tmp/idx-<id> sh -c 'git read-tree HEAD && git add -A && git write-tree'; rm -f /tmp/idx-<id>` → T0, reportado em ESTADO FIXADO; o condutor_de_pr compara com `HEAD^{tree}` após o commit.
+- Fingerprint T0: use esta forma, porque o deny de `sh -c*` bloqueia a antiga: `GIT_INDEX_FILE=/tmp/idx-<id> git read-tree HEAD && GIT_INDEX_FILE=/tmp/idx-<id> git add -A && GIT_INDEX_FILE=/tmp/idx-<id> git write-tree; rm -f /tmp/idx-<id>`.
 - Divergência de Python ou uv com o CI vai para NÃO VERIFICADO como 'paridade com CI' e não impede CONFIRMADO local; a lacuna fecha só com o CI do head SHA em success, visto pelo condutor_de_pr.

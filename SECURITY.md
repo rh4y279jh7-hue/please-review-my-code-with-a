@@ -6,8 +6,10 @@ Só a branch `main` recebe correções de segurança. O projeto não publica ver
 
 ## Como reportar uma vulnerabilidade
 
-Não abra issue, pull request nem discussão pública sobre a falha. Use o relato
-privado de vulnerabilidades do GitHub, na aba **Security** deste repositório.
+Não abra issue, pull request, discussão ou comentário público sobre a falha.
+Enquanto o relato privado de vulnerabilidades do GitHub não estiver ativo neste
+repositório, comunique o dono (@rh4y279jh7-hue) por um canal privado combinado
+com ele antes. Quando o relato privado estiver ativo, use a aba **Security**.
 
 Descreva arquivo, linha e como reproduzir. Nunca inclua o valor de
 `HIVEMIND_API_TOKEN`, de chaves de provedores (`HIVEMIND_*_API_KEY`) nem o
