@@ -131,9 +131,7 @@ async def test_unverified_memory_cannot_silently_become_independent_evidence() -
     ]
     assert "UNVERIFIED_AGENT_OUTPUT" in agent.contexts[1][-1]
     assert all(
-        call.args[1].startswith(
-            "[UNVERIFIED_AGENT_OUTPUT: not independent evidence]\n"
-        )
+        call.args[1].startswith("[UNVERIFIED_AGENT_OUTPUT: not independent evidence]\n")
         for call in memory.remember.await_args_list
     )
 
