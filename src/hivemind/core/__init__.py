@@ -20,6 +20,10 @@ from hivemind.memory import KnowledgeStore
 
 EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
+# Model output and retrieved memories are inputs, not independently verified facts.
+_UNVERIFIED_MEMORY_PREFIX = "[UNVERIFIED_AGENT_OUTPUT: not independent evidence]"
+_UNVERIFIED_CONTEXT_PREFIX = "[UNVERIFIED_MEMORY: verify before relying on claims]"
+
 
 class _State(TypedDict):
     task: str
@@ -117,7 +121,8 @@ class Orchestrator:
         await self._emit(state, {"type": "cycle_started", "cycle": cycle})
         previous = (
             bounded_text(
-                f"Previous cycle contribution summary:\n{state['answer']}",
+                f"Previous cycle contribution summary (UNVERIFIED_AGENT_OUTPUT, "
+                f"not independent evidence):\n{state['answer']}",
                 MAX_CONTEXT_ENTRY_CHARS,
             )
             if state["answer"]
@@ -133,7 +138,7 @@ class Orchestrator:
         except Exception:
             raise RuntimeError("Knowledge retrieval failed") from None
         context = bounded_context(
-            context,
+            [f"{_UNVERIFIED_CONTEXT_PREFIX}\n{entry}" for entry in context],
             max_entries=max_entries,
             max_chars=MAX_CONTEXT_CHARS - len(previous),
         )
@@ -200,7 +205,9 @@ class Orchestrator:
 
     async def _learn(self, state: _State) -> dict[str, list[str]]:
         try:
-            identifier = await self._memory.remember(state["task"], state["answer"])
+            identifier = await self._memory.remember(
+                state["task"], f"{_UNVERIFIED_MEMORY_PREFIX}\n{state['answer']}"
+            )
             count = await self._memory.count()
         except Exception:
             raise RuntimeError("Knowledge persistence failed") from None
