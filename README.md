@@ -43,6 +43,12 @@ flowchart TD
 - **Memória:** Chroma embutido, persistente, embeddings locais determinísticos por
   hashing de tokens. Não baixa modelos nem envia dados a serviços de embeddings.
   Essa busca lexical vetorial é simples e não equivale a embeddings semânticos.
+- **Proveniência da memória:** contribuições geradas pelos agentes são armazenadas
+  com o rótulo `UNVERIFIED_AGENT_OUTPUT`. Conteúdo recuperado de memória recebe
+  `UNVERIFIED_MEMORY` antes de voltar ao contexto dos agentes. Repetição e
+  concordância não equivalem a validação; esses rótulos ajudam a evitar
+  promoção silenciosa de texto a fato, mas **não verificam fontes** e não
+  autorizam atribuição de identidade ou ação em sistemas externos.
 - **Grafo de conhecimento:** fragmentos locais são conectados por termos em comum.
   Cada trilha recebe feromônio, pode ser reforçada quando uma descoberta é útil e
   evapora ao fim de cada geração; conexões fracas e nós isolados podem ser podados.
