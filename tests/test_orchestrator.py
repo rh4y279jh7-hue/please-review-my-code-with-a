@@ -107,7 +107,9 @@ async def test_bounded_feedback_loop_and_memory_reuse() -> None:
     with pytest.raises(AttributeError):
         engine.memory = fake_memory()  # type: ignore[misc]
     await engine.run("task again", cycles=1)
-    assert agents[0].contexts[-1] == ["prior knowledge"]
+    assert agents[0].contexts[-1] == [
+        "[UNVERIFIED_MEMORY: verify before relying on claims]\nprior knowledge"
+    ]
     await engine.close()
     await engine.close()
     assert all(agent.closed for agent in agents)
