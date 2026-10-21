@@ -79,7 +79,9 @@ async def test_bounded_feedback_loop_and_memory_reuse() -> None:
     assert list(result["responses"]) == ["first", "second"]
     assert "not a claim of consensus" in result["answer"]
     assert "[first]\nfirst answer" in result["answer"]
-    assert agents[0].contexts[0] == ["prior knowledge"]
+    assert agents[0].contexts[0] == [
+        "[UNVERIFIED_MEMORY: verify before relying on claims]\nprior knowledge"
+    ]
     assert "Previous cycle" in agents[0].contexts[1][-1]
     assert result["answer"] in agents[0].contexts[1][-1]
     assert [event["type"] for event in events] == [
@@ -111,6 +113,29 @@ async def test_bounded_feedback_loop_and_memory_reuse() -> None:
     assert all(agent.closed for agent in agents)
     with pytest.raises(RuntimeError, match="closed"):
         await engine.run("task")
+
+
+@pytest.mark.asyncio
+async def test_unverified_memory_cannot_silently_become_independent_evidence() -> None:
+    memory = fake_memory()
+    agent = StubAgent(
+        "unverified_agent",
+        answer="A strong-looking claim without independent corroboration.",
+    )
+    engine = Orchestrator([agent], memory, max_cycles=2)
+    await engine.run("Investigate the claim", cycles=2)
+
+    assert len(agent.contexts) == 2
+    assert agent.contexts[0] == [
+        "[UNVERIFIED_MEMORY: verify before relying on claims]\nprior knowledge"
+    ]
+    assert "UNVERIFIED_AGENT_OUTPUT" in agent.contexts[1][-1]
+    assert all(
+        call.args[1].startswith(
+            "[UNVERIFIED_AGENT_OUTPUT: not independent evidence]\n"
+        )
+        for call in memory.remember.await_args_list
+    )
 
 
 @pytest.mark.asyncio
