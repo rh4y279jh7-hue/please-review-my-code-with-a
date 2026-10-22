@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from secrets import token_urlsafe
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
@@ -41,10 +42,10 @@ _SECURITY_HEADERS: dict[str, str] = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": (
         "default-src 'none'; "
-        "script-src 'self' https://cdn.jsdelivr.net https://va.vercel-scripts.com; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
         "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
         "img-src 'self' data: https://fastapi.tiangolo.com; "
-        "connect-src 'self' https://va.vercel-scripts.com; "
+        "connect-src 'self'; "
         "frame-ancestors 'none'; "
         "base-uri 'none'; "
         "form-action 'self'"
@@ -99,6 +100,8 @@ def create_app(
 ) -> FastAPI:
     """Cria a aplicação; dependências injetáveis permitem testes offline."""
     config = settings if settings is not None else Settings()
+    if config.api_token is None:
+        raise ValueError("A API exige HIVEMIND_API_TOKEN, inclusive em modo demo")
     jobs: dict[str, Job] = {}
 
     @asynccontextmanager
@@ -115,6 +118,7 @@ def create_app(
                     max_cycles=config.max_cycles,
                     timeout_seconds=config.agent_timeout_seconds,
                     memory_top_k=config.memory_top_k,
+                    max_provider_calls=config.max_provider_calls,
                 )
             except Exception:
                 await asyncio.gather(
@@ -156,7 +160,7 @@ def create_app(
 
     def authorized(value: str | None) -> bool:
         token = config.api_token
-        return token is None or (
+        return token is not None and (
             value is not None
             and hmac.compare_digest(
                 value.encode("utf-8"), token.get_secret_value().encode("utf-8")
@@ -200,20 +204,27 @@ def create_app(
 
     @application.get("/docs", include_in_schema=False)
     async def custom_swagger_ui_html() -> HTMLResponse:
-        """Custom Swagger UI with Vercel Web Analytics integration."""
+        """Serve a documentação sem scripts de telemetria ou análise de visitantes."""
         html = get_swagger_ui_html(
             openapi_url=application.openapi_url or "/openapi.json",
             title=f"{application.title} - Swagger UI",
             swagger_favicon_url="https://fastapi.tiangolo.com/img/favicon.png",
         )
-        # Inject Vercel Analytics script before closing head tag
-        analytics_script = (
-            '<script defer src="https://va.vercel-scripts.com/v1/script.js"></script>'
+        nonce = token_urlsafe(32)
+        content = (
+            bytes(html.body)
+            .decode("utf-8")
+            .replace("<script>", f'<script nonce="{nonce}">')
         )
-        body_bytes = bytes(html.body)
-        html_content = body_bytes.decode("utf-8")
-        html_content = html_content.replace("</head>", f"{analytics_script}</head>")
-        return HTMLResponse(content=html_content)
+        response = HTMLResponse(content=content)
+        response.headers["Content-Security-Policy"] = _SECURITY_HEADERS[
+            "Content-Security-Policy"
+        ].replace(
+            "script-src 'self' https://cdn.jsdelivr.net;",
+            f"script-src 'self' https://cdn.jsdelivr.net 'nonce-{nonce}';",
+            1,
+        )
+        return response
 
     @application.get("/health")
     async def health() -> dict[str, str]:

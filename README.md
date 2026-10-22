@@ -43,6 +43,8 @@ flowchart TD
 - **Memória:** Chroma embutido, persistente, embeddings locais determinísticos por
   hashing de tokens. Não baixa modelos nem envia dados a serviços de embeddings.
   Essa busca lexical vetorial é simples e não equivale a embeddings semânticos.
+  Novas respostas entram em quarentena; a recuperação persistente usa somente
+  registros aprovados explicitamente pelo operador e dentro da validade.
 - **Grafo de conhecimento:** fragmentos locais são conectados por termos em comum.
   Cada trilha recebe feromônio, pode ser reforçada quando uma descoberta é útil e
   evapora ao fim de cada geração; conexões fracas e nós isolados podem ser podados.
@@ -74,10 +76,14 @@ Requisitos: Python 3.12+, [uv](https://docs.astral.sh/uv/) ou Docker Compose.
 ```bash
 uv sync --frozen
 cp .env.example .env
+# Gere o token local e configure HIVEMIND_API_TOKEN no .env antes de iniciar.
+# Alternativa com Docker: ./scripts/start.sh gera o token sem exibi-lo.
 uv run uvicorn hivemind.api.app:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-O modo demo vem habilitado, dispensa chaves e não faz chamadas aos provedores.
+O modo demo vem habilitado, dispensa chaves de provedores e não faz chamadas a eles.
+A API exige token de 32+ caracteres também em demo e loopback; sem ele a
+inicialização falha. A simulação CLI offline continua funcionando sem token.
 Abra `http://127.0.0.1:8000/docs` para a documentação OpenAPI interativa.
 
 ### Simulação offline da colônia
@@ -99,14 +105,18 @@ conteúdo não verificado. Para começar de novo, remova o arquivo do grafo.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Authorization: Bearer $HIVEMIND_API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"task":"Como organizar um projeto de pesquisa?","cycles":2}'
 # HTTP 202: {"id":"...","status":"queued","result":null,"error":null}
 
-curl http://127.0.0.1:8000/tasks/ID_DA_TAREFA
-curl http://127.0.0.1:8000/metrics
+curl -H "Authorization: Bearer $HIVEMIND_API_TOKEN" http://127.0.0.1:8000/tasks/ID_DA_TAREFA
+curl -H "Authorization: Bearer $HIVEMIND_API_TOKEN" http://127.0.0.1:8000/metrics
 curl http://127.0.0.1:8000/health
 ```
+
+Use nos exemplos uma variável de ambiente local com o token configurado; não
+publique seu valor nem use histórico de shell para compartilhá-lo.
 
 `GET /tasks/{id}` retorna `queued`, `running`, `completed`, `failed` ou `cancelled`,
 com resultado final ou erro sanitizado. As execuções são serializadas: uma tarefa
@@ -132,8 +142,8 @@ import os
 from websockets.asyncio.client import connect
 
 async def main():
-    token = os.getenv("HIVEMIND_API_TOKEN")
-    headers = {"Authorization": "Bearer " + token} if token else {}
+    token = os.environ["HIVEMIND_API_TOKEN"]
+    headers = {"Authorization": "Bearer " + token}
     async with connect(
         "ws://127.0.0.1:8000/ws/tasks/ID_DA_TAREFA",
         additional_headers=headers,
@@ -159,20 +169,35 @@ Todas as opções estão documentadas em [`.env.example`](.env.example), com pre
 3. Configure ao menos uma chave: `HIVEMIND_ANTHROPIC_API_KEY`,
    `HIVEMIND_OPENAI_API_KEY` ou `HIVEMIND_GOOGLE_API_KEY`.
 4. Ajuste os nomes de modelos para os disponíveis na sua conta e reinicie.
+   Defina também `HIVEMIND_MAX_PROVIDER_CALLS` com uma cota deliberada; o padrão
+   `0` bloqueia chamadas de agentes reais. Essa variável não libera orçamento
+   financeiro nem configura autorização para cobranças.
 5. Envie o header `Authorization` com esquema `Bearer` e o token nos endpoints de tarefas, métricas
    e no handshake WebSocket. `/health` e documentação não exigem autenticação.
 
 Somente provedores com chave configurada são ativados. Limites da conta, custos,
 disponibilidade dos modelos e políticas de retenção dos provedores continuam
 aplicáveis. Cada ciclo pode fazer uma chamada por agente; não existe loop infinito.
+A cota conta tentativas de chamada antes do envio, incluindo falhas e cancelamentos,
+e é acumulada por instância do orquestrador. Reiniciar o processo ou criar outra
+instância reinicia a cota; ela não é um medidor de custo em reais. Não habilite
+provedores reais sem autorização de uso e gastos fora do modo demo.
 
 ## Memória, retroalimentação e métricas
 
-Dados ficam em `HIVEMIND_MEMORY_PATH` (padrão `data/chroma`). Respostas dos ciclos
-anteriores e registros relevantes podem ser reutilizados. Resultados são
-conteúdo não verificado: podem conter erros ou instruções maliciosas e nunca
-devem ser tratados como política de sistema. Revise respostas antes de decisões
-sensíveis; não envie segredos ou dados pessoais desnecessários.
+Dados ficam em `HIVEMIND_MEMORY_PATH` (padrão `data/chroma`). Novas respostas são
+armazenadas como `quarantined`. Somente registros `approved`, no escopo consultado
+e não expirados, participam da recuperação persistente. Registros legados sem
+metadados permanecem guardados, mas não são recuperados por padrão. A contribuição
+do ciclo anterior da mesma tarefa ainda pode ser reutilizada como contexto não
+confiável; isso não promove o registro na memória.
+
+A origem técnica registra tarefa/execução, agentes, hash e data; uma saída de IA
+não é uma fonte factual. A aprovação exige revisão explícita do operador com
+responsável e evidência pelos métodos locais de curadoria, sem endpoint público
+de autoaprovação. Aprovação não impede instruções maliciosas: os agentes continuam
+tratando todo contexto como dado não confiável. Não envie segredos ou dados
+pessoais desnecessários. Consulte [os controles e limites](docs/security-hardening.md).
 
 `GET /metrics` informa contadores de ciclos, tarefas, falhas de agentes e
 quantidade atual de registros. São medidas operacionais, não provas de ganho
@@ -182,15 +207,15 @@ execuções.
 
 A retenção de tarefas/eventos é limitada em RAM: registros terminados mais antigos
 são removidos ao atingir a capacidade. Tarefas/status não sobrevivem a reinícios.
-A memória vetorial cresce com o uso e **não tem expiração automática**: monitore
-disco, estabeleça política de retenção e faça backup consistente com o serviço
-parado. Para apagar toda a memória, pare o serviço e remova o diretório de dados
-(ou volume Docker). Não abra bancos recebidos de terceiros.
+A memória vetorial cresce com o uso: expiração e rejeição impedem recuperação,
+mas não removem automaticamente os dados do disco. Há exclusão seletiva local;
+estabeleça uma política de retenção e faça backup consistente com o serviço
+parado. Não abra bancos recebidos de terceiros nem apague volumes como rotina
+de curadoria.
 
 ## Segurança e limites de implantação
 
-- O padrão sem autenticação existe **apenas para demo local**. Configure token
-  também em demo antes de permitir acesso compartilhado.
+- Toda API exige token, inclusive demo local; a CLI offline é independente.
 - Use TLS, proxy com limites de corpo/requisições, proteção de rede, gerenciamento
   de segredos, quotas de custo e monitoramento antes de expor o serviço.
 - O token compartilhado não implementa usuários, RBAC ou isolamento entre tenants:
@@ -215,6 +240,7 @@ parado. Para apagar toda a memória, pare o serviço e remova o diretório de da
 
 ```bash
 docker compose up --build
+# Exige HIVEMIND_API_TOKEN configurado; ./scripts/start.sh prepara o .env local.
 # API: http://127.0.0.1:8000 ; volume hivemind-data para a memória
 docker compose down
 # ATENÇÃO: down -v também apaga a memória persistente
