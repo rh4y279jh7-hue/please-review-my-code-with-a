@@ -66,7 +66,7 @@ Você pode criar um botão "Enviar tarefa ao HiveMind":
    - **Método**: `POST`
    - **Cabeçalhos**:
      - `Content-Type`: `application/json`
-     - `Authorization`: `******
+     - `Authorization`: `Bearer SEU_TOKEN_LOCAL`
    - **Corpo da solicitação**: `JSON`
      - `task` (Texto): use a variável da ação "Pedir Entrada"
      - `cycles` (Número): `2`
@@ -87,7 +87,7 @@ com `GET /tasks/ID_DA_TAREFA` até o `status` virar `completed`, `failed` ou
 ## Comandos úteis (no host)
 
 ```bash
-# Subir só no loopback do próprio computador (modo demo, sem token):
+# Subir só no loopback do próprio computador (demo autenticado; gera token local):
 ./scripts/start.sh
 
 # Subir aceitando a rede local (gera token automaticamente):
@@ -101,15 +101,21 @@ docker compose down
 ## Modo real (Claude, GPT, Gemini)
 
 1. Edite o `.env` e defina `HIVEMIND_DEMO_MODE=false`.
-2. Garanta um `HIVEMIND_API_TOKEN` com pelo menos 32 caracteres (o `--lan` já gera um).
+2. Garanta um `HIVEMIND_API_TOKEN` com pelo menos 32 caracteres (o inicializador gera
+   um tanto em loopback quanto com `--lan`).
 3. Configure ao menos uma chave de provedor: `HIVEMIND_ANTHROPIC_API_KEY`,
    `HIVEMIND_OPENAI_API_KEY` ou `HIVEMIND_GOOGLE_API_KEY`.
-4. Reinicie o serviço. Custos, limites e políticas de cada provedor se aplicam.
+4. Configure uma cota explícita `HIVEMIND_MAX_PROVIDER_CALLS` somente após autorizar
+   o uso dos provedores. O padrão `0` bloqueia chamadas reais; não mede custo em
+   reais e reinicia com o processo. Custos e políticas de cada provedor se aplicam.
+5. Reinicie o serviço no ambiente previamente autorizado.
 
 ## Limites e segurança
 
 - O token é compartilhado: quem o tiver acessa todas as tarefas e a mesma memória.
   Não há usuários, RBAC nem isolamento entre pessoas.
 - Nenhum agente executa comandos, controla aplicativos ou acessa o seu celular.
+- Novas respostas entram em quarentena na memória persistente; aprovação para
+  recuperação exige curadoria explícita do operador. Não há autoaprovação de IA.
 - Respostas podem conter erros ou instruções maliciosas; revise antes de usar em
   decisões sensíveis e não envie segredos ou dados pessoais desnecessários.

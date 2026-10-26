@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     agent_timeout_seconds: float = Field(default=30, ge=0.1, le=300)
     max_cycles: int = Field(default=2, ge=1, le=10)
+    max_provider_calls: int = Field(default=0, ge=0, le=10000)
     memory_path: str = "data/chroma"
     graph_path: str = "data/knowledge_graph.json"
     memory_top_k: int = Field(default=3, ge=1, le=20)

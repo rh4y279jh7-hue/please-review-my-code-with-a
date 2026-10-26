@@ -138,9 +138,81 @@ def test_concurrency_and_queue_limits_are_controls() -> None:
 
 def test_rules_files_and_guard_are_protected() -> None:
     assert "regras-removidas" in rules(diff("AGENTS.md", removed=["2. Fail closed."]))
-    assert not rules(diff("AGENTS.md", added=["7. Nova regra mais forte."]))
+    assert "caminho-protegido" in rules(
+        diff("AGENTS.md", added=["7. Nova regra mais forte."])
+    )
     assert "guardiao" in rules(diff("scripts/integrity_guard.py", added=["pass"]))
     assert "ci" in rules(diff(".github/workflows/ci.yml", added=["  - run: echo"]))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/governanca-agentes-github.md",
+        "SECURITY.md",
+        ".github/CODEOWNERS",
+        ".github/copilot-instructions.md",
+        ".github/instructions/review.instructions.md",
+        ".github/skills/review/SKILL.md",
+        ".codex/config.toml",
+        ".claude/settings.json",
+        "tests/test_integrity_guard.py",
+        "tests/test_repo_hardening.py",
+    ],
+)
+@pytest.mark.parametrize("status", ["A", "M", "D"])
+def test_protected_paths_require_deliberate_owner_decision(
+    path: str, status: str
+) -> None:
+    findings = guard.analyze([diff(path, added=["new content"], status=status)])
+    assert any(f.rule == "caminho-protegido" for f in findings)
+    assert guard.decide(findings, set()) == 1
+    assert guard.decide(findings, {guard.OVERRIDE_LABEL}) == 0
+
+
+def test_renaming_out_of_protected_path_does_not_escape_guard() -> None:
+    moved = diff("docs/ordinary.md", status="R:docs/governanca-agentes-github.md")
+    assert "caminho-protegido" in rules(moved)
+    moved_config = diff("ordinary.toml", status="R:.codex/config.toml")
+    assert "caminho-protegido" in rules(moved_config)
+    moved_into = diff(".github/CODEOWNERS", status="R:ordinary.txt")
+    assert "caminho-protegido" in rules(moved_into)
+
+
+def test_parse_rename_preserves_protected_source_without_hunks() -> None:
+    text = (
+        "diff --git a/.github/CODEOWNERS b/docs/owners.txt\n"
+        "similarity index 100%\n"
+        "rename from .github/CODEOWNERS\n"
+        "rename to docs/owners.txt\n"
+    )
+    files = guard.parse_diff(text)
+    assert len(files) == 1
+    assert files[0].path == "docs/owners.txt"
+    assert files[0].status == "R:.github/CODEOWNERS"
+    assert "caminho-protegido" in rules(*files)
+
+
+def test_ordinary_changes_and_antigravity_data_do_not_expand_protected_scope() -> None:
+    assert not rules(diff("docs/ordinary.md", added=["ordinary documentation"]))
+    assert not rules(diff(".antigravity/chats/example.json", added=["{}"]))
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        "Content-Security-Policy",
+        "content-security-policy",
+        "script-src",
+        "connect-src",
+        "Strict-Transport-Security",
+        "strict-transport-security",
+    ],
+)
+def test_security_header_removal_is_detected(control: str) -> None:
+    assert "controle-removido" in rules(
+        diff("src/hivemind/api/app.py", removed=[f'header = "{control}"'])
+    )
 
 
 def test_bootstrap_allows_first_install_only() -> None:
@@ -205,3 +277,122 @@ def test_main_end_to_end(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     git("add", ".")
     git("commit", "-qm", "strengthen")
     assert guard.main(["--base", "main", "--head", "strengthen"]) == 0
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["probe\n.yml", "probe\t.yml", "probé.yml", 'probe "review".yml'],
+    ids=["newline", "tab", "unicode", "quote-and-space"],
+)
+def test_real_git_quoted_protected_paths_are_decoded(repo: Path, name: str) -> None:
+    relative = f".github/workflows/{name}"
+    path = repo / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("name: guarded\n", encoding="utf-8")
+    subprocess.run(["git", "add", "--", relative], cwd=repo, check=True)
+    text = subprocess.run(
+        ["git", "-c", "core.quotePath=true", "diff", "--cached", "--unified=0"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    files = guard.parse_diff(text)
+    assert len(files) == 1
+    assert files[0].path == relative
+    findings = guard.analyze(files)
+    assert any(f.rule == "caminho-protegido" for f in findings)
+    assert guard.decide(findings, set()) == 1
+
+
+def test_real_git_quoted_rename_cannot_leave_protected_scope(repo: Path) -> None:
+    original = ".codex/old\n.toml"
+    path = repo / original
+    path.parent.mkdir()
+    path.write_text('name = "guarded"\n', encoding="utf-8")
+    subprocess.run(["git", "add", "--", original], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "add protected fixture"], cwd=repo, check=True
+    )
+    subprocess.run(["git", "mv", "--", original, "ordinary.toml"], cwd=repo, check=True)
+    text = subprocess.run(
+        ["git", "diff", "--cached", "--unified=0", "-M"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    files = guard.parse_diff(text)
+    assert len(files) == 1
+    assert files[0].path == "ordinary.toml"
+    assert files[0].status == f"R:{original}"
+    assert "caminho-protegido" in rules(*files)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        'diff --git "a/.github/broken.yml b/.github/broken.yml',
+        r'diff --git "a/.github/invalid\q.yml" "b/.github/invalid\q.yml"',
+        "diff --git a/folder b/name b/folder b/name",
+    ],
+)
+def test_ambiguous_or_malformed_diff_fails_closed(header: str) -> None:
+    files = guard.parse_diff(header)
+    findings = guard.analyze(files)
+    assert any(f.rule == "diff-invalido" and f.hard for f in findings)
+    assert guard.decide(findings, set()) == 1
+    assert guard.decide(findings, {guard.OVERRIDE_LABEL}) == 1
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "probe\n| injected | `message`.yml",
+        "probe\r\n|\u202e injected | `message`.yml",
+    ],
+    ids=["newline", "crlf-and-bidi"],
+)
+def test_real_git_filename_cannot_inject_summary_markdown(
+    repo: Path, name: str
+) -> None:
+    relative = f".github/workflows/{name}"
+    path = repo / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("name: guarded\n", encoding="utf-8")
+    subprocess.run(["git", "add", "--", relative], cwd=repo, check=True)
+    text = subprocess.run(
+        ["git", "diff", "--cached", "--unified=0"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    findings = guard.analyze(guard.parse_diff(text))
+    code = guard.decide(findings, set())
+    assert code == 1
+    summary = guard.render(findings, set(), code)
+    rows = [line for line in summary.splitlines() if line.startswith("|")]
+    assert len(rows) == 2 + len(findings)
+    assert all(line.count("|") == 4 for line in rows)
+    assert "\\n" in summary
+    assert "&#124;" in summary
+    assert "&#96;" in summary
+    assert "\r" not in summary
+    assert "\u202e" not in summary
+
+
+def test_untrusted_finding_details_are_rendered_as_text() -> None:
+    finding = guard.Finding(
+        "synthetic",
+        "ordinary.txt",
+        "<em>text</em>\r\n| row | `code` \u202e [link](https://example.invalid)",
+    )
+    summary = guard.render([finding], set(), 1)
+    rows = [line for line in summary.splitlines() if line.startswith("|")]
+    assert len(rows) == 3
+    assert all(line.count("|") == 4 for line in rows)
+    assert "<em>" not in summary
+    assert "[link](https://example.invalid)" not in summary
+    assert "\\r\\n" in summary
+    assert "\\u202e" in summary

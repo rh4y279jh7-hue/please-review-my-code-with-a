@@ -3,11 +3,13 @@
 import asyncio
 import math
 from collections.abc import Awaitable, Callable
+from threading import Lock
 from typing import Any, TypedDict
+from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
-from hivemind.agents import BaseAgent
+from hivemind.agents import BaseAgent, DemoAgent
 from hivemind.agents.limits import (
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_ENTRIES,
@@ -22,6 +24,7 @@ EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class _State(TypedDict):
+    run_id: str
     task: str
     target_cycles: int
     cycle: int
@@ -49,11 +52,16 @@ class Orchestrator:
         max_cycles: int = 2,
         timeout_seconds: float = 30,
         memory_top_k: int = 3,
+        max_provider_calls: int = 0,
     ) -> None:
         if type(max_cycles) is not int or not 1 <= max_cycles <= 10:
             raise ValueError("max_cycles must be an integer between 1 and 10")
         if type(memory_top_k) is not int or memory_top_k < 1:
             raise ValueError("memory_top_k must be a positive integer")
+        if type(max_provider_calls) is not int or not 0 <= max_provider_calls <= 10000:
+            raise ValueError(
+                "max_provider_calls must be an integer between 0 and 10000"
+            )
         if (
             isinstance(timeout_seconds, bool)
             or not isinstance(timeout_seconds, (int, float))
@@ -73,6 +81,9 @@ class Orchestrator:
         self._max_cycles = max_cycles
         self._timeout = timeout_seconds
         self._memory_top_k = memory_top_k
+        self._max_provider_calls = max_provider_calls
+        self._provider_calls = 0
+        self._budget_lock = Lock()
         self._run_lock = asyncio.Lock()
         self._closed = False
         self.feedback = Feedback()
@@ -142,6 +153,14 @@ class Orchestrator:
         return {"cycle": cycle, "context": context}
 
     async def _dispatch(self, state: _State) -> dict[str, Any]:
+        # Reserva o ciclo inteiro antes de iniciar qualquer chamada. Falhas e
+        # cancelamentos consomem a reserva; ela não estima nem limita reais gastos.
+        required = sum(not isinstance(agent, DemoAgent) for agent in self._agents)
+        with self._budget_lock:
+            if self._provider_calls + required > self._max_provider_calls:
+                raise RuntimeError("Provider call budget exhausted")
+            self._provider_calls += required
+
         async def generate(agent: BaseAgent) -> tuple[str, str | None]:
             try:
                 async with asyncio.timeout(self._timeout):
@@ -199,8 +218,22 @@ class Orchestrator:
         return {"answer": answer}
 
     async def _learn(self, state: _State) -> dict[str, list[str]]:
+        contributors = [
+            agent for agent in self._agents if agent.name in state["responses"]
+        ]
+        source_kind = (
+            "demo_output"
+            if all(isinstance(agent, DemoAgent) for agent in contributors)
+            else "agent_output"
+        )
         try:
-            identifier = await self._memory.remember(state["task"], state["answer"])
+            identifier = await self._memory.remember(
+                state["task"],
+                state["answer"],
+                source_id=f"{state['run_id']}:cycle:{state['cycle']}",
+                source_kind=source_kind,
+                providers=tuple(state["responses"]),
+            )
             count = await self._memory.count()
         except Exception:
             raise RuntimeError("Knowledge persistence failed") from None
@@ -237,6 +270,7 @@ class Orchestrator:
                 if self._closed:
                     raise RuntimeError("Orchestrator is closed")
                 state: _State = {
+                    "run_id": uuid4().hex,
                     "task": task,
                     "target_cycles": target,
                     "cycle": 0,
