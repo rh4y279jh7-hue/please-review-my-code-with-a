@@ -7,14 +7,14 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic==1.15.0",
     "chromadb==1.5.9",
-    "fastapi==0.143.3",
+    "fastapi==0.146.0",
     "google-genai==2.31.0",
     "langgraph==1.2.16",
     "numpy==2.5.4",
-    "openai==3.33.0",
+    "openai==3.35.1",
     "pydantic==2.14.1",
     "pydantic-settings==2.16.0",
-    "starlette==1.8.0",
+    "starlette==1.9.0",
     "uvicorn==0.54.0",
 ]
 
