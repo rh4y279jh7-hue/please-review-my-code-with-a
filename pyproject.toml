@@ -7,14 +7,14 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic==1.15.0",
     "chromadb==1.5.9",
-    "fastapi==0.143.3",
-    "google-genai==2.31.0",
-    "langgraph==1.2.16",
+    "fastapi==0.162.0",
+    "google-genai==2.34.0",
+    "langgraph==1.2.19",
     "numpy==2.5.4",
-    "openai==3.33.0",
-    "pydantic==2.14.1",
-    "pydantic-settings==2.16.0",
-    "starlette==1.8.0",
+    "openai==3.42.0",
+    "pydantic==2.14.2",
+    "pydantic-settings==2.16.2",
+    "starlette==1.10.0",
     "uvicorn==0.54.0",
 ]
 
@@ -22,7 +22,7 @@ dependencies = [
 hivemind = "hivemind.__main__:main"
 
 [build-system]
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.ruff]
@@ -54,9 +54,9 @@ show_missing = true
 dev = [
     "black==26.10.1",
     "httpx==0.28.1",
-    "mypy==2.4.0",
-    "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
+    "mypy==2.4.1",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1",
     "pytest-cov==7.1.0",
-    "ruff==0.17.1",
+    "ruff==0.17.3",
 ]
