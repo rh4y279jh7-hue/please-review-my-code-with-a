@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
@@ -16,6 +17,14 @@ from hivemind.api.app import create_app
 from hivemind.config import Settings
 from hivemind.core import Orchestrator
 from hivemind.logging import JsonFormatter
+
+OFFLINE_BEARER = "offline-test-token-" * 3
+AUTH_HEADERS = {"Authorization": f"Bearer {OFFLINE_BEARER}"}
+
+
+def authenticated_client(app: Any) -> TestClient:
+    """Exercise the same authenticated transport contract as deployed clients."""
+    return TestClient(app, headers=AUTH_HEADERS)
 
 
 def fake_engine(*, fail: bool = False, delay: float = 0) -> Any:
@@ -49,12 +58,24 @@ def fake_engine(*, fail: bool = False, delay: float = 0) -> Any:
 
 def settings(**kwargs: Any) -> Settings:
     """Ignore developer .env files for deterministic tests."""
-    return Settings(_env_file=None, **kwargs)
+    options = {"api_token": SecretStr(OFFLINE_BEARER), **kwargs}
+    return Settings(_env_file=None, **options)
+
+
+def test_api_requires_token_including_demo_mode() -> None:
+    """ASGI factories cannot assume that an operator bound only to loopback."""
+    for token in (None, ""):
+        with pytest.raises(ValueError, match="API exige HIVEMIND_API_TOKEN"):
+            create_app(settings(api_token=token), fake_engine())
+    # Local CLI configuration remains usable without provider/API credentials.
+    assert Settings(_env_file=None).api_token is None
 
 
 def test_api_roundtrip_and_websocket_replay() -> None:
     engine = fake_engine()
-    with TestClient(create_app(settings(), cast(Orchestrator, engine))) as client:
+    with authenticated_client(
+        create_app(settings(), cast(Orchestrator, engine))
+    ) as client:
         assert client.get("/health").json() == {"status": "ok"}
         response = client.post("/tasks", json={"task": "Investigue", "cycles": 1})
         assert response.status_code == 202
@@ -78,7 +99,7 @@ def test_api_roundtrip_and_websocket_replay() -> None:
 def test_demo_factory_with_real_local_memory(tmp_path: Path) -> None:
     """Exercise the API/engine contract using only offline demo contributors."""
     config = settings(memory_path=str(tmp_path / "knowledge"))
-    with TestClient(create_app(config)) as client:
+    with authenticated_client(create_app(config)) as client:
         assert client.get("/metrics").json()["knowledge_entries"] == 0
         task_id = client.post("/tasks", json={"task": "Planeje uma pesquisa"}).json()[
             "id"
@@ -92,7 +113,7 @@ def test_demo_factory_with_real_local_memory(tmp_path: Path) -> None:
         metrics = client.get("/metrics").json()
         assert metrics["knowledge_entries"] == 2
         assert metrics["completed_tasks"] == 1
-    with TestClient(create_app(config)) as restarted:
+    with authenticated_client(create_app(config)) as restarted:
         assert restarted.get("/metrics").json()["knowledge_entries"] == 2
 
 
@@ -110,7 +131,9 @@ async def test_completion_during_websocket_accept_delivers_terminal_event() -> N
     app = create_app(settings(), engine)
     async with app.router.lifespan_context(app):
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers=AUTH_HEADERS,
         ) as client:
             task_id = (await client.post("/tasks", json={"task": "a"})).json()["id"]
             sent: list[dict[str, Any]] = []
@@ -125,7 +148,7 @@ async def test_completion_during_websocket_accept_delivers_terminal_event() -> N
                 pytest.fail("Task did not complete during the handshake")
 
             websocket = Mock(spec=WebSocket)
-            websocket.headers = {}
+            websocket.headers = {"authorization": f"Bearer {OFFLINE_BEARER}"}
             websocket.accept = AsyncMock(side_effect=accept_after_completion)
             websocket.send_json = AsyncMock(side_effect=sent.append)
             websocket.close = AsyncMock()
@@ -142,12 +165,14 @@ async def test_completion_during_websocket_accept_delivers_terminal_event() -> N
 
 @pytest.mark.parametrize("task", ["", "   ", "x" * 16001])
 def test_invalid_task(task: str) -> None:
-    with TestClient(create_app(settings(), fake_engine())) as client:
+    with authenticated_client(create_app(settings(), fake_engine())) as client:
         assert client.post("/tasks", json={"task": task}).status_code == 422
 
 
 def test_cycles_cannot_exceed_server_limit() -> None:
-    with TestClient(create_app(settings(max_cycles=1), fake_engine())) as client:
+    with authenticated_client(
+        create_app(settings(max_cycles=1), fake_engine())
+    ) as client:
         for cycles in (0, 2, 11):
             assert (
                 client.post("/tasks", json={"task": "a", "cycles": cycles}).status_code
@@ -198,7 +223,7 @@ def test_authentication_on_rest_and_websocket() -> None:
 
 
 def test_security_headers_present_on_responses() -> None:
-    with TestClient(create_app(settings(), fake_engine())) as client:
+    with authenticated_client(create_app(settings(), fake_engine())) as client:
         headers = client.get("/health").headers
         assert headers["X-Content-Type-Options"] == "nosniff"
         assert headers["X-Frame-Options"] == "DENY"
@@ -212,17 +237,42 @@ def test_security_headers_present_on_responses() -> None:
 
 
 def test_docs_remain_available_with_security_headers() -> None:
-    with TestClient(create_app(settings(), fake_engine())) as client:
+    with authenticated_client(create_app(settings(), fake_engine())) as client:
         response = client.get("/docs")
         assert response.status_code == 200
         assert (
             "script-src 'self' https://cdn.jsdelivr.net"
             in response.headers["Content-Security-Policy"]
         )
+        assert "vercel" not in response.text.casefold()
+        assert "vercel" not in response.headers["Content-Security-Policy"].casefold()
+        assert "connect-src 'self';" in response.headers["Content-Security-Policy"]
+
+
+def test_docs_inline_initialization_uses_unique_response_nonce() -> None:
+    with authenticated_client(create_app(settings(), fake_engine())) as client:
+        nonces = []
+        for _ in range(2):
+            response = client.get("/docs")
+            scripts = re.findall(r'<script nonce="([A-Za-z0-9_-]+)">', response.text)
+            assert len(scripts) == 1
+            nonce = scripts[0]
+            assert f"'nonce-{nonce}'" in response.headers["Content-Security-Policy"]
+            script_policy = (
+                response.headers["Content-Security-Policy"]
+                .split("script-src ", 1)[1]
+                .split(";", 1)[0]
+            )
+            assert "'unsafe-inline'" not in script_policy
+            assert "SwaggerUIBundle({" in response.text
+            assert "<script>" not in response.text
+            assert response.headers["Cache-Control"] == "no-store"
+            nonces.append(nonce)
+        assert nonces[0] != nonces[1]
 
 
 def test_provider_failure_is_sanitized() -> None:
-    with TestClient(create_app(settings(), fake_engine(fail=True))) as client:
+    with authenticated_client(create_app(settings(), fake_engine(fail=True))) as client:
         task_id = client.post("/tasks", json={"task": "a"}).json()["id"]
         with client.websocket_connect(f"/ws/tasks/{task_id}") as ws:
             final = ws.receive_json()
@@ -237,7 +287,7 @@ def test_concurrency_limit_and_shutdown_cancellation() -> None:
     engine = fake_engine(delay=60)
     config = settings(max_tasks=1, max_concurrent_tasks=1)
     app = create_app(config, engine)
-    with TestClient(app) as client:
+    with authenticated_client(app) as client:
         task_id = client.post("/tasks", json={"task": "a"}).json()["id"]
         assert client.post("/tasks", json={"task": "b"}).status_code == 429
         assert client.get(f"/tasks/{task_id}").json()["status"] in {"queued", "running"}
@@ -247,7 +297,7 @@ def test_concurrency_limit_and_shutdown_cancellation() -> None:
 def test_waiting_task_stays_queued_until_engine_starts_it() -> None:
     engine = fake_engine(delay=60)
     config = settings(max_tasks=2, max_concurrent_tasks=2)
-    with TestClient(create_app(config, engine)) as client:
+    with authenticated_client(create_app(config, engine)) as client:
         first = client.post("/tasks", json={"task": "a"}).json()["id"]
         second = client.post("/tasks", json={"task": "b"}).json()["id"]
         for _ in range(200):
@@ -260,7 +310,7 @@ def test_waiting_task_stays_queued_until_engine_starts_it() -> None:
 
 def test_completed_task_eviction() -> None:
     config = settings(max_tasks=1, max_concurrent_tasks=1)
-    with TestClient(create_app(config, fake_engine())) as client:
+    with authenticated_client(create_app(config, fake_engine())) as client:
         first = client.post("/tasks", json={"task": "a"}).json()["id"]
         with client.websocket_connect(f"/ws/tasks/{first}") as ws:
             while ws.receive_json()["type"] != "task_finished":
@@ -273,11 +323,13 @@ def test_completed_task_eviction() -> None:
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"demo_mode": False},
+        {"demo_mode": False, "api_token": None},
         {"api_token": SecretStr("short")},
         {"openai_api_key": SecretStr(" ")},
         {"max_cycles": 0},
         {"max_cycles": 11},
+        {"max_provider_calls": -1},
+        {"max_provider_calls": 10001},
         {"max_tasks": 1, "max_concurrent_tasks": 2},
     ],
 )
@@ -294,7 +346,7 @@ def test_empty_optional_credentials_and_secret_representation() -> None:
 
 def test_configuration_errors_do_not_disclose_credentials() -> None:
     with pytest.raises(ValidationError) as error:
-        settings(demo_mode=False, openai_api_key="private-test-value")
+        settings(demo_mode=False, api_token=None, openai_api_key="private-test-value")
     assert "private-test-value" not in str(error.value)
 
 

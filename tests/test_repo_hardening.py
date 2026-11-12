@@ -182,7 +182,8 @@ def test_review_and_update_config_present() -> None:
 
 
 def test_workflows_keep_least_privilege() -> None:
-    workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    folder = ROOT / ".github" / "workflows"
+    workflows = sorted([*folder.glob("*.yml"), *folder.glob("*.yaml")])
     assert workflows
     for path in workflows:
         assert _workflow_problems(path.read_text(encoding="utf-8")) == [], path.name
@@ -199,11 +200,17 @@ def test_integrity_workflow_runs_base_guard() -> None:
 
 
 def test_ci_workflow_pins_actions_and_drops_git_credentials() -> None:
-    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "uses:" in text
-    assert _unpinned_uses(text) == []
-    assert "persist-credentials: false" in text
-    assert text.count("persist-credentials: false") >= text.count("actions/checkout@")
+    folder = ROOT / ".github" / "workflows"
+    workflows = sorted([*folder.glob("*.yml"), *folder.glob("*.yaml")])
+    assert workflows
+    for path in workflows:
+        text = path.read_text(encoding="utf-8")
+        assert "uses:" in text, path.name
+        assert _unpinned_uses(text) == [], path.name
+        assert "persist-credentials: false" in text, path.name
+        assert text.count("persist-credentials: false") >= text.count(
+            "actions/checkout@"
+        ), path.name
 
 
 def test_pin_checker_flags_tags() -> None:

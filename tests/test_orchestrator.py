@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivemind.agents import BaseAgent
+from hivemind.agents import BaseAgent, DemoAgent
 from hivemind.agents.limits import (
     MAX_CONTEXT_CHARS,
     MAX_CONTEXT_ENTRIES,
@@ -19,7 +19,7 @@ from hivemind.feedback import Feedback
 from hivemind.memory import KnowledgeStore
 
 
-class StubAgent(BaseAgent):
+class StubAgent(DemoAgent):
     """Capture context and simulate successful, failed, or slow providers."""
 
     def __init__(
@@ -102,6 +102,10 @@ async def test_bounded_feedback_loop_and_memory_reuse() -> None:
         "knowledge_entries": 2,
     }
     assert engine.memory is memory
+    origin = cast(AsyncMock, memory.remember).await_args_list[0].kwargs
+    assert origin["source_kind"] == "demo_output"
+    assert origin["source_id"].endswith(":cycle:1")
+    assert origin["providers"] == ("first", "second")
     with pytest.raises(AttributeError):
         engine.memory = fake_memory()  # type: ignore[misc]
     await engine.run("task again", cycles=1)
@@ -368,3 +372,88 @@ def test_feedback_thread_safety_and_snapshot_isolation() -> None:
     assert feedback.snapshot()["completed_tasks"] == 1000
     with pytest.raises(ValueError):
         feedback.increment(completed_tasks=-1)
+
+
+class MeteredAgent(BaseAgent):
+    """Represent a provider call without network or real credentials."""
+
+    name = "metered"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(self, task: str, context: list[str]) -> str:
+        self.calls += 1
+        return "simulated paid provider contribution"
+
+    async def close(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_provider_budget_defaults_to_zero_before_any_call() -> None:
+    agent = MeteredAgent()
+    engine = Orchestrator([agent], fake_memory(), max_cycles=1)
+    with pytest.raises(RuntimeError, match="budget exhausted"):
+        await engine.run("task")
+    assert agent.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_provider_budget_reserves_the_entire_cycle_before_dispatch() -> None:
+    first = MeteredAgent()
+    second = MeteredAgent()
+    second.name = "second"
+    engine = Orchestrator(
+        [first, second], fake_memory(), max_cycles=1, max_provider_calls=1
+    )
+    with pytest.raises(RuntimeError, match="budget exhausted"):
+        await engine.run("task")
+    assert first.calls == second.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_provider_budget_accumulates_across_tasks_and_cycles() -> None:
+    agent = MeteredAgent()
+    engine = Orchestrator([agent], fake_memory(), max_provider_calls=2)
+    result = await engine.run("first")
+    assert result["cycles"] == 2
+    assert agent.calls == 2
+    origin = cast(AsyncMock, engine.memory.remember).await_args_list[0].kwargs
+    assert origin["source_kind"] == "agent_output"
+    with pytest.raises(RuntimeError, match="budget exhausted"):
+        await engine.run("second", cycles=1)
+    assert agent.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_provider_attempt_is_not_refunded() -> None:
+    class FailingMeteredAgent(MeteredAgent):
+        async def generate(self, task: str, context: list[str]) -> str:
+            self.calls += 1
+            raise RuntimeError("offline simulated failure")
+
+    agent = FailingMeteredAgent()
+    engine = Orchestrator([agent], fake_memory(), max_cycles=1, max_provider_calls=1)
+    with pytest.raises(RuntimeError, match="All agents failed"):
+        await engine.run("first")
+    with pytest.raises(RuntimeError, match="budget exhausted"):
+        await engine.run("second")
+    assert agent.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_cannot_overspend_provider_reservations() -> None:
+    agent = MeteredAgent()
+    engine = Orchestrator([agent], fake_memory(), max_cycles=1, max_provider_calls=1)
+    results = await asyncio.gather(
+        engine.run("first"), engine.run("second"), return_exceptions=True
+    )
+    assert sum(isinstance(result, RuntimeError) for result in results) == 1
+    assert agent.calls == 1
+
+
+@pytest.mark.parametrize("limit", [-1, True, 1.5, 10_001])
+def test_invalid_provider_budget(limit: Any) -> None:
+    with pytest.raises(ValueError, match="max_provider_calls"):
+        Orchestrator([MeteredAgent()], fake_memory(), max_provider_calls=limit)

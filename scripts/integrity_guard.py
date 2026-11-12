@@ -12,6 +12,9 @@ nunca são liberados.
 from __future__ import annotations
 
 import argparse
+import codecs
+import html
+import json
 import os
 import re
 import subprocess
@@ -63,6 +66,12 @@ SECURITY_TOKENS = (
     "Retry-After",
     "_lock",
     "Lock(",
+    "Content-Security-Policy",
+    "content-security-policy",
+    "script-src",
+    "connect-src",
+    "Strict-Transport-Security",
+    "strict-transport-security",
 )
 QUALITY_SECTIONS = (
     "tool.ruff",
@@ -71,8 +80,15 @@ QUALITY_SECTIONS = (
     "tool.pytest",
     "tool.coverage",
 )
-PROTECTED_DOCS = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
-PROTECTED_DIRS = (".codex/agents/", ".claude/agents/")
+PROTECTED_DOCS = (
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "SECURITY.md",
+    "docs/governanca-agentes-github.md",
+)
+PROTECTED_TESTS = ("tests/test_integrity_guard.py", "tests/test_repo_hardening.py")
+PROTECTED_DIRS = (".github/", ".codex/", ".claude/")
 
 
 @dataclass
@@ -83,6 +99,7 @@ class FileDiff:
     status: str = "M"
     removed: list[tuple[int, str]] = field(default_factory=list)
     added: list[str] = field(default_factory=list)
+    malformed: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +112,46 @@ class Finding:
     hard: bool = False
 
 
+def _protected_path(path: str) -> bool:
+    """Inclui arquivos novos de instruções, configuração e política."""
+    return (
+        path in PROTECTED_DOCS
+        or path in PROTECTED_TESTS
+        or path.startswith(PROTECTED_DIRS)
+    )
+
+
+def _git_path(value: str) -> str:
+    """Decodifica C-quotes do Git, incluindo octais dos bytes UTF-8."""
+    if not value.startswith('"'):
+        if '"' in value or "\\" in value:
+            raise ValueError("Ambiguous unquoted Git path")
+        return value
+    if not re.fullmatch(r'"(?:\\.|[^"\\])*"', value):
+        raise ValueError("Malformed quoted Git path")
+    inner = value[1:-1]
+    if re.search(r'\\(?![0-7]{1,3}|[abfnrtv"\\])', inner):
+        raise ValueError("Unsupported Git path escape")
+    decoded, _ = codecs.escape_decode(inner.encode("utf-8"))
+    return decoded.decode("utf-8", errors="replace")
+
+
+def _header_path(raw: str) -> str:
+    """Lê os dois nomes do cabeçalho; ambiguidade bloqueia o diff."""
+    header = raw.removeprefix("diff --git ")
+    match = re.fullmatch(r'("(?:\\.|[^"\\])*"|a/.*?) ("(?:\\.|[^"\\])*"|b/.*)', header)
+    if not match:
+        raise ValueError("Malformed Git diff header")
+    old, new = match.groups()
+    if not old.startswith('"') and not new.startswith('"'):
+        if header.count(" b/") != 1:
+            raise ValueError("Ambiguous Git diff header")
+    before, after = _git_path(old), _git_path(new)
+    if not before.startswith("a/") or not after.startswith("b/"):
+        raise ValueError("Unexpected Git diff prefixes")
+    return after[2:]
+
+
 def parse_diff(text: str) -> list[FileDiff]:
     """Interpreta ``git diff --unified=0 --no-color``."""
     files: list[FileDiff] = []
@@ -102,8 +159,10 @@ def parse_diff(text: str) -> list[FileDiff]:
     old_line = 0
     for raw in text.splitlines():
         if raw.startswith("diff --git "):
-            path = raw.split(" b/", 1)[1] if " b/" in raw else raw.split()[-1]
-            current = FileDiff(path=path)
+            try:
+                current = FileDiff(path=_header_path(raw))
+            except ValueError:
+                current = FileDiff(path="[diff não interpretável]", malformed=True)
             files.append(current)
         elif current is None:
             continue
@@ -112,7 +171,15 @@ def parse_diff(text: str) -> list[FileDiff]:
         elif raw.startswith("new file mode"):
             current.status = "A"
         elif raw.startswith("rename from "):
-            current.status = "R:" + raw[len("rename from ") :]
+            try:
+                current.status = "R:" + _git_path(raw[len("rename from ") :])
+            except ValueError:
+                current.malformed = True
+        elif raw.startswith("rename to "):
+            try:
+                current.path = _git_path(raw[len("rename to ") :])
+            except ValueError:
+                current.malformed = True
         elif raw.startswith("--- a/") and current.status == "D":
             current.path = raw[len("--- a/") :]
         elif raw.startswith(("--- ", "+++ ", "index ", "similarity ", "rename to ")):
@@ -160,6 +227,13 @@ def analyze(
         path, gone = diff.path, removed_for_real(diff)
         is_test = path.startswith("tests/") or "/tests/" in path
 
+        if diff.malformed:
+            findings.append(
+                Finding(
+                    "diff-invalido", path, "caminho de diff não interpretável", True
+                )
+            )
+
         for line in diff.added:
             if SECRET_RE.search(line):
                 findings.append(Finding("segredo", path, "credencial adicionada", True))
@@ -171,6 +245,16 @@ def analyze(
             continue
         if path.startswith(".github/workflows/") and path not in GUARD_FILES:
             findings.append(Finding("ci", path, "workflow de CI alterado"))
+
+        previous_path = diff.status[2:] if diff.status.startswith("R:") else path
+        if _protected_path(path) or _protected_path(previous_path):
+            findings.append(
+                Finding(
+                    "caminho-protegido",
+                    path,
+                    "criação, alteração, renomeação ou exclusão de caminho protegido",
+                )
+            )
 
         if is_test:
             if diff.status == "D" or diff.status.startswith("R:"):
@@ -258,6 +342,13 @@ def decide(findings: list[Finding], labels: set[str]) -> int:
     return 0
 
 
+def _summary_value(value: str) -> str:
+    """Exibe dado não confiável em uma célula, sem controles nem Markdown."""
+    escaped = html.escape(json.dumps(value, ensure_ascii=True))
+    escaped = escaped.translate({ord(char): f"&#{ord(char)};" for char in "|`[]*_~"})
+    return f"<code>{escaped}</code>"
+
+
 def render(findings: list[Finding], labels: set[str], code: int) -> str:
     """Relatório em Markdown para o log e o resumo do job."""
     lines = ["## Guardião de integridade (AGENTS.md §15)", ""]
@@ -268,8 +359,10 @@ def render(findings: list[Finding], labels: set[str], code: int) -> str:
     lines += [f"**{status}**", "", "| Regra | Arquivo | Detalhe |", "|---|---|---|"]
     for f in findings:
         rule = f"{f.rule} (não liberável)" if f.hard else f.rule
-        detail = f.detail.replace("|", "\\|")
-        lines.append(f"| {rule} | `{f.path}` | {detail} |")
+        lines.append(
+            f"| {_summary_value(rule)} | {_summary_value(f.path)} | "
+            f"{_summary_value(f.detail)} |"
+        )
     if code and not any(f.hard for f in findings):
         lines += [
             "",

@@ -32,11 +32,22 @@ async def test_local_persistence_and_retrieval(local_path: str) -> None:
     assert await store.count() == 0
     assert await store.search("python") == []
     identifier = await store.remember(
-        "python asyncio", "Use async tasks for concurrency"
+        "python asyncio", "Use async tasks for concurrency", source_id="fixture:python"
     )
     assert identifier
-    await store.remember("bread yeast", "Allow dough to rise")
+    bread = await store.remember(
+        "bread yeast", "Allow dough to rise", source_id="fixture:bread"
+    )
     assert await store.count() == 2
+    assert await store.search("python asyncio", limit=1) == []
+    for record_id in (identifier, bread):
+        record = await store.inspect(record_id)
+        await store.approve(
+            record_id,
+            reviewer="fixture-reviewer",
+            evidence="Static fixture reviewed against the expected test answer",
+            expected_hash=record["metadata"]["content_sha256"],
+        )
     matches = await store.search("python asyncio", limit=1)
     assert len(matches) == 1
     assert "Use async tasks" in matches[0]
